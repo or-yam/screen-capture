@@ -35,6 +35,30 @@ The app currently includes:
 
 The drawing interactions are intentionally not complete yet. The first implemented output path is capture -> preview/editor -> copy/save.
 
+## Before You Start
+
+This repo is an early scaffold, not a finished Lightshot-style app yet.
+
+Important context before working on the code:
+
+- Develop and test on macOS only. The app uses AppKit, SwiftUI, and `/usr/sbin/screencapture`.
+- Run `swift build` first and fix compiler errors before adding features.
+- The capture path intentionally starts with `/usr/sbin/screencapture`, not ScreenCaptureKit.
+- Menu-bar capture is the current entry point.
+- `GlobalShortcutManager.swift` is only stubbed; the global shortcut is not implemented yet.
+- Annotation rendering/modeling is scaffolded, but drag-to-draw, selection, move/resize, delete, undo/redo, and real blur are not complete yet.
+- Running with `swift run` gives a development executable, not a polished `.app` bundle.
+- The Swift Package layout may not be the final app structure. A real Xcode app target will likely be useful for Info.plist, entitlements, signing, permissions, app icon, notarization, and packaging.
+- If capture fails, check macOS Screen Recording permissions first.
+
+Recommended first vertical slice:
+
+1. Make `swift build` pass.
+2. Run the menu-bar app locally.
+3. Confirm capture opens the editor.
+4. Confirm copy and save work.
+5. Only then add annotation interactions or global shortcuts.
+
 ## Build And Run Locally
 
 This is a native macOS Swift app. If you usually work in TypeScript, the closest mental model is:
