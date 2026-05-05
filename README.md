@@ -35,16 +35,86 @@ The app currently includes:
 
 The drawing interactions are intentionally not complete yet. The first implemented output path is capture -> preview/editor -> copy/save.
 
-## Build
+## Build And Run Locally
+
+This is a native macOS Swift app. If you usually work in TypeScript, the closest mental model is:
+
+- `Package.swift` is like `package.json` for Swift Package Manager.
+- `swift build` is like `npm run build`.
+- `swift run ScreenCaptureAll` is like `npm start` for this executable target.
+- Xcode is optional for this scaffold, but useful for debugging and later packaging as a real `.app` bundle.
+
+### Prerequisites
+
+Install Xcode from the Mac App Store, or install only the command line tools:
+
+```bash
+xcode-select --install
+```
+
+Verify Swift is available:
+
+```bash
+swift --version
+```
+
+### Build
+
+From the repo root:
 
 ```bash
 swift build
 ```
 
-Run from source:
+Build outputs go into `.build/`, similar to `node_modules` or `dist` style generated output. This folder is gitignored.
+
+### Run
 
 ```bash
 swift run ScreenCaptureAll
 ```
+
+The app runs as a menu-bar utility, so you should see a small camera icon in the macOS menu bar instead of a Dock icon.
+
+### Stop The App
+
+Use the menu-bar icon and choose `Quit`.
+
+If needed, stop it from Terminal with `Control-C` in the `swift run` process.
+
+## Local QA Checklist
+
+Run this on macOS, not Linux. The app uses AppKit, SwiftUI, and `/usr/sbin/screencapture`, which are macOS-only.
+
+1. Run `swift build` and confirm it completes without compiler errors.
+2. Run `swift run ScreenCaptureAll`.
+3. Confirm the camera icon appears in the menu bar.
+4. Choose `Capture Area` from the menu.
+5. Drag-select part of the screen using the native macOS screenshot selector.
+6. Confirm the floating editor opens with the captured image.
+7. Click `Copy`, then paste into Preview, Messages, Slack, or another image-capable app.
+8. Click `Save`, then confirm a PNG appears in `~/Pictures/Screenshots`.
+9. Open `Preferences` and change the save folder.
+10. Save another screenshot and confirm it lands in the new folder.
+11. Test `Capture Window` and `Capture Full Screen` from the menu.
+12. Choose `Quit` and confirm the menu-bar icon disappears.
+
+## macOS Permissions
+
+The first capture may trigger macOS privacy prompts.
+
+If capture does not work, check:
+
+- `System Settings` -> `Privacy & Security` -> `Screen Recording`
+- `System Settings` -> `Privacy & Security` -> `Accessibility`
+
+For this MVP, capture is delegated to the native `screencapture` tool, so permission behavior may look like the built-in macOS screenshot flow.
+
+## Current Limitations
+
+- Global shortcut registration is scaffolded but not implemented yet.
+- Annotation drawing interactions are not complete yet.
+- Running with `swift run` does not produce a polished `.app` bundle.
+- Packaging, signing, notarization, and auto-update are not set up yet.
 
 For a polished app bundle, create an Xcode macOS app target from this package or migrate the sources into an Xcode project.
