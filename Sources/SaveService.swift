@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class SaveService {
     private let preferences: PreferencesStore
 
@@ -8,6 +9,7 @@ final class SaveService {
     }
 
     func savePNG(_ data: Data) throws -> URL {
+        NSLog("SaveService: saving PNG to folder \(preferences.saveFolderURL.path), \(data.count) bytes.")
         try FileManager.default.createDirectory(
             at: preferences.saveFolderURL,
             withIntermediateDirectories: true,
@@ -15,6 +17,7 @@ final class SaveService {
         )
         let outputURL = preferences.saveFolderURL.appendingPathComponent(filename())
         try data.write(to: outputURL, options: .atomic)
+        NSLog("SaveService: wrote PNG to \(outputURL.path).")
         return outputURL
     }
 

@@ -12,6 +12,7 @@ struct ScreenCaptureAllApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let preferences = PreferencesStore()
 
@@ -22,15 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        let clipboardService = ClipboardService()
-        let saveService = SaveService(preferences: preferences)
-        let renderer = Renderer()
-        let editorWindowController = ScreenshotEditorWindowController(
-            renderer: renderer,
-            clipboardService: clipboardService,
-            saveService: saveService
+        let captureCoordinator = CaptureCoordinator(
+            saveService: SaveService(preferences: preferences)
         )
-        let captureCoordinator = CaptureCoordinator(editorWindowController: editorWindowController)
         self.captureCoordinator = captureCoordinator
 
         menuBarController = MenuBarController(
@@ -40,7 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBarController?.install()
 
         globalShortcutManager = GlobalShortcutManager {
-            captureCoordinator.captureArea()
+            Task { @MainActor in
+                captureCoordinator.startRegionCapture()
+            }
         }
         globalShortcutManager?.start()
     }

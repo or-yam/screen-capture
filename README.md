@@ -1,144 +1,113 @@
 # Screen Capture All
 
-A tiny personal macOS screenshot utility inspired by Lightshot and the native Screenshot app.
+A personal macOS Tahoe screenshot utility inspired by Lightshot.
 
-Primary flow:
+`NEW_PRD.md` is the product source of truth. The current Swift code is an early prototype scaffold, not the target MVP architecture.
 
-1. Trigger capture from the menu bar or global shortcut.
-2. Select an area, window, or full screen.
-3. Annotate the image in a lightweight floating editor.
-4. Copy, save, or save-and-copy, then disappear.
+## Target Flow
 
-## MVP Strategy
-
-This project starts with the lowest-risk native path:
-
-- SwiftUI for app shell and preferences
-- AppKit for menu bar and floating editor panel
-- `/usr/sbin/screencapture` for capture
-- CoreGraphics/AppKit rendering for PNG export
-- `NSPasteboard` for clipboard output
-- `FileManager` and `UserDefaults` for local save behavior
-
-## Current Scaffold
-
-The app currently includes:
-
-- Menu bar app with capture commands
-- Interactive `screencapture -i` area/window capture and full-screen capture
-- Floating editor window
-- Vector annotation model
-- PNG renderer
-- Clipboard service
-- Save service
-- Preferences window for default action, copy-after-save, toolbar visibility, and save folder
-
-The drawing interactions are intentionally not complete yet. The first implemented output path is capture -> preview/editor -> copy/save.
-
-## Before You Start
-
-This repo is an early scaffold, not a finished Lightshot-style app yet.
-
-Important context before working on the code:
-
-- Develop and test on macOS only. The app uses AppKit, SwiftUI, and `/usr/sbin/screencapture`.
-- Run `swift build` first and fix compiler errors before adding features.
-- The capture path intentionally starts with `/usr/sbin/screencapture`, not ScreenCaptureKit.
-- Menu-bar capture is the current entry point.
-- `GlobalShortcutManager.swift` is only stubbed; the global shortcut is not implemented yet.
-- Annotation rendering/modeling is scaffolded, but drag-to-draw, selection, move/resize, delete, undo/redo, and real blur are not complete yet.
-- Running with `swift run` gives a development executable, not a polished `.app` bundle.
-- The Swift Package layout may not be the final app structure. A real Xcode app target will likely be useful for Info.plist, entitlements, signing, permissions, app icon, notarization, and packaging.
-- If capture fails, check macOS Screen Recording permissions first.
-
-Recommended first vertical slice:
-
-1. Make `swift build` pass.
-2. Run the menu-bar app locally.
-3. Confirm capture opens the editor.
-4. Confirm copy and save work.
-5. Only then add annotation interactions or global shortcuts.
-
-## Build And Run Locally
-
-This is a native macOS Swift app. If you usually work in TypeScript, the closest mental model is:
-
-- `Package.swift` is like `package.json` for Swift Package Manager.
-- `swift build` is like `npm run build`.
-- `swift run ScreenCaptureAll` is like `npm start` for this executable target.
-- Xcode is optional for this scaffold, but useful for debugging and later packaging as a real `.app` bundle.
-
-### Prerequisites
-
-Install Xcode from the Mac App Store, or install only the command line tools:
-
-```bash
-xcode-select --install
+```text
+global hotkey -> drag region -> annotate in place -> copy/save -> disappear
 ```
 
-Verify Swift is available:
+The MVP is region capture only. Window capture, full-screen capture, history, upload, OCR, public distribution, sandboxing, telemetry, and App Store concerns are out of scope.
 
-```bash
-swift --version
+## Current Direction
+
+The app is being realigned around:
+
+- macOS Tahoe 26 only.
+- Native macOS APIs wherever practical.
+- ScreenCaptureKit-first region capture.
+- AppKit overlay windows for selection, annotation, keyboard handling, and toolbar behavior.
+- `NSPasteboard` PNG copy.
+- PNG save to a local folder.
+- A compact Lightshot-style toolbar shown only after region selection.
+
+MVP toolbar:
+
+```text
+Arrow | Text | Rectangle | Draw | Color | Undo | Stroke size | Highlight | Copy | Save | Close
 ```
 
-### Build
+## Current Scaffold Status
 
-From the repo root:
+The checked-in app currently contains a prototype path:
+
+- Menu bar app.
+- `/usr/sbin/screencapture`-based area/window/full-screen capture.
+- Separate floating editor window.
+- Scaffolded annotation model and renderer.
+- Clipboard and save services.
+- Preferences for old behavior such as `defaultAction`, `copyAfterSave`, and `showFloatingToolbar`.
+
+That prototype is useful for learning and salvageable pieces, but it is deprecated as product direction. New work should not extend the `screencapture` flow or the separate editor-window workflow.
+
+Known scaffold gaps:
+
+- `GlobalShortcutManager` is a stub.
+- Capture is not ScreenCaptureKit-based.
+- Selection is owned by macOS `screencapture`, not this app.
+- Annotation happens in a separate editor window, not on the capture surface.
+- Annotation identity is unstable in the current model.
+- The code still exposes stale tools and settings that are not MVP scope.
+
+## Planning Docs
+
+Read these first:
+
+- [NEW_PRD.md](NEW_PRD.md)
+- [tech-designs/tahoe-native-region-capture-alignment.md](tech-designs/tahoe-native-region-capture-alignment.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+Retired context:
+
+- [docs/PHASE1-SCOPE.md](docs/PHASE1-SCOPE.md)
+
+## Build And Run Prototype
+
+This is currently a Swift Package prototype.
 
 ```bash
 swift build
-```
-
-Build outputs go into `.build/`, similar to `node_modules` or `dist` style generated output. This folder is gitignored.
-
-### Run
-
-```bash
 swift run ScreenCaptureAll
 ```
 
-The app runs as a menu-bar utility, so you should see a small camera icon in the macOS menu bar instead of a Dock icon.
+The app runs as a menu bar utility.
 
-### Stop The App
+This run path is for current scaffold validation only. A real `.app` bundle may be needed as the native overlay, permissions, and launch behavior mature.
 
-Use the menu-bar icon and choose `Quit`.
+## Local QA For Current Prototype
 
-If needed, stop it from Terminal with `Control-C` in the `swift run` process.
+Use this only to check the existing scaffold:
 
-## Local QA Checklist
-
-Run this on macOS, not Linux. The app uses AppKit, SwiftUI, and `/usr/sbin/screencapture`, which are macOS-only.
-
-1. Run `swift build` and confirm it completes without compiler errors.
+1. Run `swift build`.
 2. Run `swift run ScreenCaptureAll`.
-3. Confirm the camera icon appears in the menu bar.
-4. Choose `Capture Area` from the menu.
-5. Drag-select part of the screen using the native macOS screenshot selector.
-6. Confirm the floating editor opens with the captured image.
-7. Click `Copy`, then paste into Preview, Messages, Slack, or another image-capable app.
-8. Click `Save`, then confirm a PNG appears in `~/Pictures/Screenshots`.
-9. Open `Preferences` and change the save folder.
-10. Save another screenshot and confirm it lands in the new folder.
-11. Test `Capture Window` and `Capture Full Screen` from the menu.
-12. Choose `Quit` and confirm the menu-bar icon disappears.
+3. Confirm the menu bar icon appears.
+4. Use `Capture Area`.
+5. Confirm the separate editor window opens.
+6. Confirm `Copy` writes PNG data to the clipboard.
+7. Confirm `Save` writes a PNG file.
 
-## macOS Permissions
+Do not treat this checklist as MVP acceptance criteria.
 
-The first capture may trigger macOS privacy prompts.
+## MVP Acceptance Direction
 
-If capture does not work, check:
+The actual MVP should satisfy:
 
-- `System Settings` -> `Privacy & Security` -> `Screen Recording`
-- `System Settings` -> `Privacy & Security` -> `Accessibility`
+1. Global shortcut starts region selection.
+2. App-owned transparent overlay covers active displays.
+3. Dragging selects a rectangular region.
+4. Mouse-up immediately enters annotation mode.
+5. Floating toolbar appears after selection.
+6. Arrow, text, rectangle, draw, highlight, color, stroke size, and undo work.
+7. `Cmd+C` or toolbar Copy copies final PNG and closes.
+8. `Cmd+S` or toolbar Save saves final PNG and closes.
+9. `Esc` cancels and closes.
+10. Output is correct on Retina and multi-display setups.
 
-For this MVP, capture is delegated to the native `screencapture` tool, so permission behavior may look like the built-in macOS screenshot flow.
+## Permissions
 
-## Current Limitations
+Screen Recording permission is required for native screenshot capture.
 
-- Global shortcut registration is scaffolded but not implemented yet.
-- Annotation drawing interactions are not complete yet.
-- Running with `swift run` does not produce a polished `.app` bundle.
-- Packaging, signing, notarization, and auto-update are not set up yet.
-
-For a polished app bundle, create an Xcode macOS app target from this package or migrate the sources into an Xcode project.
+Accessibility permission should be avoided unless the final global hotkey or event strategy proves it is required.

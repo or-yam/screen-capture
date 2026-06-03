@@ -10,7 +10,7 @@ enum AnnotationTool: String, CaseIterable {
     case blur
 }
 
-enum Annotation: Identifiable {
+enum Annotation {
     case arrow(start: CGPoint, end: CGPoint, color: Color, width: CGFloat)
     case ellipse(rect: CGRect, color: Color, width: CGFloat)
     case rectangle(rect: CGRect, color: Color, width: CGFloat)
@@ -19,7 +19,6 @@ enum Annotation: Identifiable {
     case text(String, position: CGPoint, color: Color, fontSize: CGFloat)
     case blur(rect: CGRect, radius: CGFloat)
 
-    var id: UUID { UUID() }
 }
 
 extension Annotation {
@@ -48,7 +47,7 @@ extension Annotation {
             }
             context.stroke(path, with: .color(color), lineWidth: width)
         case let .text(value, position, color, fontSize):
-            context.draw(Text(value).font(.system(size: fontSize)).foregroundStyle(color), at: position, anchor: .topLeading)
+            context.draw(Text(value).font(.system(size: fontSize)).foregroundColor(color), at: position, anchor: .topLeading)
         case let .blur(rect, _):
             context.fill(Path(rect), with: .color(.gray.opacity(0.4)))
         }
