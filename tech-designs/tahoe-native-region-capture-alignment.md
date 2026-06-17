@@ -458,7 +458,7 @@ Required docs changes:
 - Rewrite `README.md` around the Tahoe-native region overlay MVP.
 - Mark current code as prototype/Milestone 0.
 - Replace `docs/ARCHITECTURE.md` with the target architecture from this design.
-- Replace or retire `docs/PHASE1-SCOPE.md`; it contradicts the new source of truth.
+- Delete retired phase-scope docs that contradict the new source of truth.
 - Keep `NEW_PRD.md` as product authority.
 - Add a short deprecation notice at the top of legacy docs until they are deleted.
 

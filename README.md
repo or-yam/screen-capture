@@ -32,25 +32,7 @@ Arrow | Text | Rectangle | Draw | Color | Undo | Stroke size | Highlight | Copy 
 
 ## Current Scaffold Status
 
-The checked-in app currently contains a prototype path:
-
-- Menu bar app.
-- `/usr/sbin/screencapture`-based area/window/full-screen capture.
-- Separate floating editor window.
-- Scaffolded annotation model and renderer.
-- Clipboard and save services.
-- Preferences for old behavior such as `defaultAction`, `copyAfterSave`, and `showFloatingToolbar`.
-
-That prototype is useful for learning and salvageable pieces, but it is deprecated as product direction. New work should not extend the `screencapture` flow or the separate editor-window workflow.
-
-Known scaffold gaps:
-
-- `GlobalShortcutManager` is a stub.
-- Capture is not ScreenCaptureKit-based.
-- Selection is owned by macOS `screencapture`, not this app.
-- Annotation happens in a separate editor window, not on the capture surface.
-- Annotation identity is unstable in the current model.
-- The code still exposes stale tools and settings that are not MVP scope.
+The checked-in Swift package is a migration scaffold, not the target MVP. New work should align it with the ScreenCaptureKit overlay flow described below and in the planning docs.
 
 ## Planning Docs
 
@@ -60,36 +42,16 @@ Read these first:
 - [tech-designs/tahoe-native-region-capture-alignment.md](tech-designs/tahoe-native-region-capture-alignment.md)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-Retired context:
+## Build And Run
 
-- [docs/PHASE1-SCOPE.md](docs/PHASE1-SCOPE.md)
-
-## Build And Run Prototype
-
-This is currently a Swift Package prototype.
+This is currently a Swift Package scaffold.
 
 ```bash
 swift build
 swift run ScreenCaptureAll
 ```
 
-The app runs as a menu bar utility.
-
-This run path is for current scaffold validation only. A real `.app` bundle may be needed as the native overlay, permissions, and launch behavior mature.
-
-## Local QA For Current Prototype
-
-Use this only to check the existing scaffold:
-
-1. Run `swift build`.
-2. Run `swift run ScreenCaptureAll`.
-3. Confirm the menu bar icon appears.
-4. Use `Capture Area`.
-5. Confirm the separate editor window opens.
-6. Confirm `Copy` writes PNG data to the clipboard.
-7. Confirm `Save` writes a PNG file.
-
-Do not treat this checklist as MVP acceptance criteria.
+The app currently runs as a menu bar utility. A real `.app` bundle may be needed as the native overlay, permissions, and launch behavior mature.
 
 ## MVP Acceptance Direction
 
