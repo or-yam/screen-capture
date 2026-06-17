@@ -27,8 +27,8 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 - `AppShell`: menu bar presence, settings entry points, app lifecycle, permission messaging.
 - `GlobalShortcutManager`: registers the global region-capture shortcut and starts capture sessions.
 - `CaptureCoordinator`: owns screenshot session lifecycle, display geometry, cancellation, and output actions.
-- `ScreenCaptureKitService`: captures selected regions with ScreenCaptureKit.
-- `OverlayController`: owns AppKit overlay windows/views, dimming, selection, keyboard handling, and toolbar placement.
+- `ScreenCaptureKitService`: captures frozen display snapshots with ScreenCaptureKit.
+- `OverlayController`: owns AppKit overlay windows/views, frozen snapshot display, dimming, selection, keyboard handling, and toolbar placement.
 - `AnnotationEngine`: owns vector annotation state, stable annotation identity, image-space geometry, undo, and rendering commands.
 - `ExportManager`: flattens the captured image plus annotations into final PNG data.
 - `ClipboardService`: writes PNG data to `NSPasteboard`.
@@ -86,7 +86,7 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 
 MVP capture must use ScreenCaptureKit first.
 
-Use `SCScreenshotManager` for selected region capture. The selected rectangle should be represented in screen/display-space points and converted carefully from overlay coordinates.
+Use `SCScreenshotManager` to capture full-display or per-display snapshots at session start. The selected rectangle should be represented in screen/display-space points and cropped from those frozen snapshots for preview, annotation, copy, and save.
 
 Do not extend the `/usr/sbin/screencapture` path. It was useful prototype scaffolding, but it cannot support the target workflow because the app does not own the selection UI.
 
@@ -98,7 +98,7 @@ The custom overlay is MVP foundation, not polish.
 
 Requirements:
 
-- Borderless transparent AppKit overlay.
+- Borderless AppKit overlay backed by the frozen display snapshot.
 - Covers active displays.
 - Dims outside the selection.
 - Shows crosshair and selection rectangle during drag.

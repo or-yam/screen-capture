@@ -17,9 +17,6 @@ final class CaptureCoordinator {
         self.clipboardService = clipboardService
         self.saveService = saveService
         self.overlayController = overlayController ?? RegionCaptureOverlayController()
-        self.overlayController.onRegionSelected = { [weak self] rect in
-            self?.captureSelectedRegion(rect)
-        }
         self.overlayController.onCopy = { [weak self] data in
             self?.copyAndClose(data)
         }
@@ -30,26 +27,17 @@ final class CaptureCoordinator {
 
     func startRegionCapture() {
         NSLog("CaptureCoordinator: start region capture requested.")
-        overlayController.start()
-    }
-
-    private func captureSelectedRegion(_ rect: CGRect) {
-        NSLog("CaptureCoordinator: capturing selected region \(rect).")
-        let region = ScreenRegion(rectInAppKitScreenSpace: rect)
-
         Task { [weak self] in
             guard let self else { return }
 
             do {
-                overlayController.hideForCapture()
-                let image = try await screenshotService.captureRegion(region)
-                let pngData = try PNGEncoder.encode(image)
-                NSLog("CaptureCoordinator: region capture encoded PNG, \(pngData.count) bytes.")
-                overlayController.showAfterCapture()
-                overlayController.setCapturedImage(image, pngData: pngData)
+                overlayController.cancel()
+                let displays = DisplayGeometry.currentDisplays()
+                let snapshots = try await screenshotService.captureDisplaySnapshots(displays: displays)
+                NSLog("CaptureCoordinator: captured \(snapshots.count) frozen display snapshots.")
+                overlayController.start(snapshots: snapshots)
             } catch {
-                NSLog("CaptureCoordinator: region capture failed: \(error.localizedDescription)")
-                overlayController.showAfterCapture()
+                NSLog("CaptureCoordinator: frozen snapshot capture failed: \(error.localizedDescription)")
                 overlayController.showCaptureError(error)
             }
         }

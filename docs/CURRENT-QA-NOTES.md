@@ -10,8 +10,14 @@ These notes describe the current ScreenCaptureKit overlay implementation state.
 
 ## Known issues
 
-- Text annotation is buggy.
-- Overlay launch has visible flicker.
+- No current single-display issues are known from the latest manual QA pass.
+
+## Recently verified
+
+- Region capture starts from a frozen snapshot-backed overlay instead of a live desktop view.
+- Selection, annotation preview, copy, and save use the frozen snapshot content on the tested setup.
+- Overlay launch flicker was not observed after the frozen snapshot flow change.
+- Text annotation placement, commit, and output persistence work after the text draft lifecycle fix.
 
 ## Follow-up improvements
 

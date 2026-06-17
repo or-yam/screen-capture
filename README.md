@@ -19,7 +19,7 @@ The app is being realigned around:
 - macOS Tahoe 26 only.
 - Native macOS APIs wherever practical.
 - ScreenCaptureKit-first region capture.
-- AppKit overlay windows for selection, annotation, keyboard handling, and toolbar behavior.
+- Snapshot-backed AppKit overlay windows for selection, annotation, keyboard handling, and toolbar behavior.
 - `NSPasteboard` PNG copy.
 - PNG save to a local folder.
 - A compact Lightshot-style toolbar shown only after region selection.
@@ -58,7 +58,7 @@ The app currently runs as a menu bar utility. A real `.app` bundle may be needed
 The actual MVP should satisfy:
 
 1. Global shortcut starts region selection.
-2. App-owned transparent overlay covers active displays.
+2. App-owned snapshot-backed overlay covers active displays.
 3. Dragging selects a rectangular region.
 4. Mouse-up immediately enters annotation mode.
 5. Floating toolbar appears after selection.

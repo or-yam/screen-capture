@@ -26,7 +26,7 @@ struct PreferencesView: View {
                 }
             }
 
-            Text("Shortcut: Option-Shift-4")
+            Text("Shortcut: Cmd-Shift-A")
                 .foregroundStyle(.secondary)
         }
         .padding(20)

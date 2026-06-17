@@ -1,6 +1,6 @@
 # Freeze Screen Snapshot For Region Session
 
-Status: needs-triage
+Status: done
 Type: AFK
 
 ## Parent
@@ -15,12 +15,12 @@ The current transparent overlay proves the app owns input, but it still leaves t
 
 ## Acceptance criteria
 
-- [ ] Starting region capture immediately captures a full-display or per-display snapshot for the active display setup.
-- [ ] The overlay displays the frozen snapshot as its background instead of showing the live desktop through blur or transparency.
-- [ ] Region selection, selection preview, and annotation mode operate against the same frozen snapshot-backed surface.
-- [ ] App switching or content changes underneath the overlay do not change the visible capture session after it starts.
-- [ ] Raw selected-region copy/export matches the frozen snapshot content the user selected.
-- [ ] Annotated PNG copy/export flattens annotations over the selected crop from the frozen snapshot.
+- [x] Starting region capture immediately captures a full-display or per-display snapshot for the active display setup.
+- [x] The overlay displays the frozen snapshot as its background instead of showing the live desktop through blur or transparency.
+- [x] Region selection, selection preview, and annotation mode operate against the same frozen snapshot-backed surface.
+- [x] App switching or content changes underneath the overlay do not change the visible capture session after it starts.
+- [x] Raw selected-region copy/export matches the frozen snapshot content the user selected.
+- [x] Annotated PNG copy/export flattens annotations over the selected crop from the frozen snapshot.
 - [ ] Retina and multi-display coordinate behavior remains consistent with the global display-space selection model.
 
 ## Blocked by
@@ -36,3 +36,7 @@ The current transparent overlay proves the app owns input, but it still leaves t
 - QA found the current capture-start experience shows a blurred/live background instead of a frozen screen.
 - This should be treated as a session semantics issue, not visual polish: all later selection, annotation, copy, and save behavior should derive from the same frozen snapshot.
 - This should be ordered before additional annotation tools and annotated save work if possible, otherwise those slices may build on the wrong capture surface contract.
+- Implemented startup display snapshot capture in `CaptureCoordinator` and `ScreenCaptureKitScreenshotService`.
+- `RegionCaptureOverlayController` now renders frozen snapshots behind the overlay, crops the selected region from those snapshots, and uses the resulting image for annotation, copy, and save.
+- Manual QA on the tested single-display setup confirmed the frozen overlay behavior and did not reproduce the previous launch flicker.
+- Multi-display behavior still needs explicit QA before treating it as fully verified.

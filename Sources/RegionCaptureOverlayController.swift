@@ -2,14 +2,13 @@ import AppKit
 
 @MainActor
 final class RegionCaptureOverlayController {
-    var onRegionSelected: ((CGRect) -> Void)?
     var onCopy: ((Data) -> Void)?
     var onSave: ((Data) -> Void)?
 
     private var windows: [RegionCaptureOverlayWindow] = []
     private var selectionState = RegionSelectionState()
 
-    func start() {
+    func start(snapshots: [DisplaySnapshot]) {
         NSLog("RegionCapture: starting overlay session.")
         cancel()
 
@@ -19,7 +18,7 @@ final class RegionCaptureOverlayController {
             return
         }
 
-        selectionState = RegionSelectionState()
+        selectionState = RegionSelectionState(snapshots: snapshots)
         windows = screens.map { screen in
             let window = RegionCaptureOverlayWindow(
                 screen: screen,
@@ -27,7 +26,7 @@ final class RegionCaptureOverlayController {
                 close: { [weak self] in self?.cancelFromUserAction() },
                 copy: { [weak self] data in self?.onCopy?(data) },
                 save: { [weak self] data in self?.onSave?(data) },
-                selectionCompleted: { [weak self] rect in self?.onRegionSelected?(rect) },
+                selectionCompleted: { [weak self] rect in self?.setSelectedRegionFromFrozenSnapshots(rect) },
                 refresh: { [weak self] in self?.refreshOverlays() }
             )
             window.orderFrontRegardless()
@@ -50,12 +49,6 @@ final class RegionCaptureOverlayController {
     func cancelFromUserAction() {
         NSLog("Region capture cancelled by user.")
         cancel()
-    }
-
-    func setCapturedImage(_ image: CGImage, pngData: Data) {
-        NSLog("RegionCapture: captured image ready, \(image.width)x\(image.height), \(pngData.count) PNG bytes.")
-        selectionState.setCapturedImage(image, pngData: pngData)
-        refreshOverlays()
     }
 
     func hideForCapture() {
@@ -134,6 +127,18 @@ final class RegionCaptureOverlayController {
         NSWorkspace.shared.open(url)
     }
 
+    private func setSelectedRegionFromFrozenSnapshots(_ rect: CGRect) {
+        do {
+            try selectionState.setCapturedImageFromFrozenSnapshots(for: rect)
+            if let image = selectionState.capturedImage, let pngData = selectionState.capturedPNG {
+                NSLog("RegionCapture: selected frozen region ready, \(image.width)x\(image.height), \(pngData.count) PNG bytes.")
+            }
+            refreshOverlays()
+        } catch {
+            showCaptureError(error)
+        }
+    }
+
     private func refreshOverlays() {
         for window in windows {
             window.overlayView.refreshState()
@@ -156,6 +161,7 @@ final class RegionCaptureOverlayController {
 
 @MainActor
 final class RegionSelectionState {
+    private(set) var snapshots: [DisplaySnapshot]
     private(set) var anchorPoint: NSPoint?
     private(set) var currentPoint: NSPoint?
     private(set) var canonicalSelectionRect: NSRect?
@@ -166,6 +172,10 @@ final class RegionSelectionState {
     private(set) var draftAnnotation: OverlayAnnotation?
 
     private var annotationDragAnchorInImageSpace: CGPoint?
+
+    init(snapshots: [DisplaySnapshot] = []) {
+        self.snapshots = snapshots
+    }
 
     var selectionRect: NSRect? {
         if let canonicalSelectionRect {
@@ -218,7 +228,9 @@ final class RegionSelectionState {
         annotationDragAnchorInImageSpace = nil
     }
 
-    func setCapturedImage(_ image: CGImage, pngData: Data) {
+    func setCapturedImageFromFrozenSnapshots(for rect: CGRect) throws {
+        let image = try Self.cropFrozenSnapshots(snapshots, to: rect)
+        let pngData = try PNGEncoder.encode(image)
         capturedImage = image
         capturedPNG = pngData
     }
@@ -311,6 +323,7 @@ final class RegionSelectionState {
         }
 
         guard let draftAnnotation else { return }
+        guard draftAnnotation.kind != .text else { return }
         if let rect = draftAnnotation.rectInImageSpace, rect.width < 1 || rect.height < 1 {
             return
         }
@@ -358,6 +371,7 @@ final class RegionSelectionState {
     }
 
     func reset() {
+        snapshots = []
         anchorPoint = nil
         currentPoint = nil
         canonicalSelectionRect = nil
@@ -367,6 +381,73 @@ final class RegionSelectionState {
         annotations = []
         draftAnnotation = nil
         annotationDragAnchorInImageSpace = nil
+    }
+
+    private static func cropFrozenSnapshots(_ snapshots: [DisplaySnapshot], to rect: CGRect) throws -> CGImage {
+        let selectionRect = rect.standardized
+        guard selectionRect.width > 0, selectionRect.height > 0 else {
+            throw ScreenshotCaptureError.emptyRegion
+        }
+
+        let intersectingSnapshots = snapshots.compactMap { snapshot -> (snapshot: DisplaySnapshot, intersection: CGRect)? in
+            let intersection = snapshot.display.frameInAppKitScreenSpace.intersection(selectionRect).standardized
+            guard !intersection.isEmpty else { return nil }
+            return (snapshot, intersection)
+        }
+
+        guard !intersectingSnapshots.isEmpty else {
+            throw ScreenshotCaptureError.regionOutsideDisplays(
+                ScreenRegion(rectInAppKitScreenSpace: selectionRect, displays: snapshots.map(\.display))
+            )
+        }
+
+        let outputScale = intersectingSnapshots
+            .map { CGFloat($0.snapshot.image.width) / $0.snapshot.display.frameInAppKitScreenSpace.width }
+            .max() ?? 1
+        let outputWidth = max(1, Int(ceil(selectionRect.width * outputScale)))
+        let outputHeight = max(1, Int(ceil(selectionRect.height * outputScale)))
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: outputWidth,
+            height: outputHeight,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            throw RenderError.missingBitmapContext
+        }
+
+        for (snapshot, intersection) in intersectingSnapshots {
+            let frame = snapshot.display.frameInAppKitScreenSpace
+            let scaleX = CGFloat(snapshot.image.width) / frame.width
+            let scaleY = CGFloat(snapshot.image.height) / frame.height
+            let sourceRect = CGRect(
+                x: (intersection.minX - frame.minX) * scaleX,
+                y: (frame.maxY - intersection.maxY) * scaleY,
+                width: intersection.width * scaleX,
+                height: intersection.height * scaleY
+            )
+            .integral
+            .intersection(CGRect(x: 0, y: 0, width: snapshot.image.width, height: snapshot.image.height))
+
+            guard let croppedImage = snapshot.image.cropping(to: sourceRect), !sourceRect.isEmpty else { continue }
+
+            let destinationRect = CGRect(
+                x: (intersection.minX - selectionRect.minX) * outputScale,
+                y: (intersection.minY - selectionRect.minY) * outputScale,
+                width: intersection.width * outputScale,
+                height: intersection.height * outputScale
+            )
+            context.draw(croppedImage, in: destinationRect)
+        }
+
+        guard let outputImage = context.makeImage() else {
+            throw RenderError.missingCGImage
+        }
+
+        return outputImage
     }
 
     private static let defaultTextFontSize: CGFloat = 28
@@ -655,6 +736,7 @@ final class RegionCaptureOverlayView: NSView {
             return
         }
         if selectionState.capturedImage != nil {
+            guard activeAnnotationTool != .text else { return }
             selectionState.commitAnnotation()
             refresh()
             return
@@ -692,6 +774,7 @@ final class RegionCaptureOverlayView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
+        let drewFrozenBackground = drawFrozenSnapshots(in: bounds)
         NSColor.black.withAlphaComponent(0.38).setFill()
         bounds.fill()
 
@@ -702,10 +785,13 @@ final class RegionCaptureOverlayView: NSView {
 
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: localSelectionRect).addClip()
-        NSColor.clear.setFill()
-        bounds.fill(using: .copy)
         if let capturedImage = selectionState.capturedImage {
             NSImage(cgImage: capturedImage, size: localSelectionRect.size).draw(in: localSelectionRect)
+        } else if drewFrozenBackground {
+            drawFrozenSnapshots(in: localSelectionRect)
+        } else {
+            NSColor.clear.setFill()
+            bounds.fill(using: .copy)
         }
         NSGraphicsContext.restoreGraphicsState()
 
@@ -726,6 +812,21 @@ final class RegionCaptureOverlayView: NSView {
         needsDisplay = true
         updateActionButtons()
         window?.invalidateCursorRects(for: self)
+    }
+
+    @discardableResult
+    private func drawFrozenSnapshots(in clippingRect: NSRect) -> Bool {
+        var didDraw = false
+
+        for snapshot in selectionState.snapshots {
+            let localSnapshotRect = convertScreenRectToLocal(snapshot.display.frameInAppKitScreenSpace).intersection(bounds)
+            guard !localSnapshotRect.isEmpty, localSnapshotRect.intersects(clippingRect) else { continue }
+
+            NSImage(cgImage: snapshot.image, size: localSnapshotRect.size).draw(in: localSnapshotRect)
+            didDraw = true
+        }
+
+        return didDraw
     }
 
     private func configureActionButtons() {

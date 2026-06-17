@@ -1,6 +1,6 @@
 # Add Arrow And Text Annotation Copy
 
-Status: doing
+Status: done
 Type: AFK
 
 ## Parent
@@ -14,24 +14,23 @@ Complete the MVP annotation tool set by adding arrow and text creation to the ov
 ## Acceptance criteria
 
 - [x] Arrow annotations can be created from drag start to drag end.
-- [ ] Text annotations can be placed, edited, and committed before export.
+- [x] Text annotations can be placed, edited, and committed before export.
 - [x] Color and stroke defaults apply sensibly to arrow annotations.
 - [x] Color defaults apply sensibly to text annotations.
 - [x] Undo removes the latest arrow or text annotation.
-- [ ] Copy output includes arrow and text annotations at the expected image-space positions.
+- [x] Copy output includes arrow and text annotations at the expected image-space positions.
 
 ## Blocked by
 
 - [07-copy-annotated-rectangle-from-overlay.md](07-copy-annotated-rectangle-from-overlay.md)
 
-## Known bugs
+## Resolved bugs
 
-- Text annotations are not reliably committed into the annotation model.
-- Repro: select Text, place text, type content, then click another toolbar action or copy/save.
-- Expected: typed text remains visible and is included in copied/saved PNG output.
-- Actual: typed text disappears or is missing from copy/save output.
-- Prior attempted fix committed active text before toolbar actions and mapped Size to font size, but QA confirmed the real persistence bug remains.
-- Arrow annotation behavior is still considered implemented.
+- Text annotations were not reliably committed into the annotation model.
+- Repro was: select Text, place text, type content, then click another toolbar action or copy/save.
+- Root cause: the mouse-up event for text placement ran the generic annotation commit path, which cleared the empty text draft before the text field could commit typed content.
+- Fix: generic mouse-up/annotation commit now skips text drafts; text commits only through the active text-field commit path.
+- Verified with `swift build` and manual user QA.
 
 ## Comments
 
@@ -46,3 +45,5 @@ Complete the MVP annotation tool set by adding arrow and text creation to the ov
 - Text annotations use the selected color, stable image-space top-left positions, and a fixed image-space font size for preview/export consistency.
 - Preview and rendered PNG export both draw committed text annotations.
 - Verified with `swift build`.
+- Fixed text draft persistence by preventing the generic mouse-up commit path from clearing active text drafts before the text field commits.
+- Verified with `swift build` and user-confirmed manual QA.

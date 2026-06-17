@@ -22,6 +22,17 @@ struct ScreenRegion {
         self.rectInDisplaySpace = DisplayGeometry.convertToDisplaySpace(rect, displays: displays)
         self.displays = displays
     }
+
+    init(display: DisplayGeometry, displays: [DisplayGeometry]) {
+        self.rectInDisplaySpace = display.frameInDisplaySpace.standardized
+        self.rectInAppKitScreenSpace = display.frameInAppKitScreenSpace.standardized
+        self.displays = displays
+    }
+}
+
+struct DisplaySnapshot {
+    var display: DisplayGeometry
+    var image: CGImage
 }
 
 struct DisplayGeometry {
@@ -63,6 +74,7 @@ struct DisplayGeometry {
 
 protocol ScreenshotCapturing {
     func captureRegion(_ region: ScreenRegion) async throws -> CGImage
+    func captureDisplaySnapshots(displays: [DisplayGeometry]) async throws -> [DisplaySnapshot]
 }
 
 enum ScreenshotCaptureError: Error {
@@ -103,6 +115,18 @@ extension ScreenshotCaptureError: LocalizedError {
 }
 
 final class ScreenCaptureKitScreenshotService: ScreenshotCapturing {
+    func captureDisplaySnapshots(displays: [DisplayGeometry]) async throws -> [DisplaySnapshot] {
+        var snapshots: [DisplaySnapshot] = []
+        snapshots.reserveCapacity(displays.count)
+
+        for display in displays {
+            let image = try await captureRegion(ScreenRegion(display: display, displays: displays))
+            snapshots.append(DisplaySnapshot(display: display, image: image))
+        }
+
+        return snapshots
+    }
+
     func captureRegion(_ region: ScreenRegion) async throws -> CGImage {
         let rect = region.rectInDisplaySpace.standardized.integral
         guard rect.width > 0, rect.height > 0 else {
