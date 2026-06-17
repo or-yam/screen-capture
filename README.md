@@ -44,14 +44,23 @@ Read these first:
 
 ## Build And Run
 
-This is currently a Swift Package app.
+For development, run the Swift Package directly:
 
 ```bash
 swift build
 swift run ScreenCaptureAll
 ```
 
-For personal installation or GitHub Releases, package the release binary into a real `.app` bundle and distribute a zipped app first. A DMG can be added later for polish. See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
+For personal installation, package the release binary into a real `.app` bundle:
+
+```bash
+Scripts/package_app.sh
+open dist/ScreenCaptureAll.app
+```
+
+To install it permanently, copy `dist/ScreenCaptureAll.app` to `/Applications`.
+
+For GitHub Releases, upload the generated zip file from `dist/`. A DMG can be added later for polish. See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
 
 The package currently declares `.macOS(.v13)` in `Package.swift`, while the capture implementation requires macOS 15.2+ at runtime because it uses `SCScreenshotManager.captureImage(in:)`. The broader product direction remains Tahoe-native, but the package manifest has not been raised to a Tahoe-specific spelling.
 

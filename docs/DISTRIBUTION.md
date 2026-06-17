@@ -132,12 +132,29 @@ Changing any of these may cause macOS to treat the app as a different app and as
 - Signing identity.
 - App bundle structure.
 
-## Current Recommendation
+## Current Runbook
 
-Implement packaging in this order:
+Build a local app bundle and GitHub-ready ZIP with:
 
-1. Add `Scripts/package_app.sh` for local `.app` creation and ad-hoc signing.
-2. Document clone/build/run and package/install commands in `README.md`.
-3. Attach `ScreenCaptureAll-<version>.zip` to GitHub Releases.
-4. Add DMG generation only after ZIP releases feel too rough.
-5. Add Developer ID signing and notarization only if the app is shared beyond personal use.
+```bash
+Scripts/package_app.sh
+```
+
+The generated outputs are:
+
+```text
+dist/ScreenCaptureAll.app
+dist/ScreenCaptureAll-0.1.0.zip
+```
+
+Use environment variables for release overrides:
+
+```bash
+MARKETING_VERSION=0.2.0 BUILD_NUMBER=2 Scripts/package_app.sh
+```
+
+Next packaging improvements, in order:
+
+1. Attach `ScreenCaptureAll-<version>.zip` to GitHub Releases.
+2. Add DMG generation only after ZIP releases feel too rough.
+3. Add Developer ID signing and notarization only if the app is shared beyond personal use.
