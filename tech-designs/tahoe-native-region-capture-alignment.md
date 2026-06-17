@@ -2,25 +2,27 @@
 
 **Author:** Oryam
 **Date:** 2026-05-29
-**Status:** Draft
+**Status:** Historical
 
 ---
 
 ## Purpose
 
-This document describes the migration from the current prototype scaffold to the `NEW_PRD.md` source-of-truth architecture for a personal, Tahoe-only, native macOS region screenshot and annotation utility.
+This document records the migration plan from the old prototype scaffold to the `NEW_PRD.md` source-of-truth architecture for a personal, Tahoe-only, native macOS region screenshot and annotation utility.
+
+The MVP implementation has since landed. Use `README.md`, `docs/ARCHITECTURE.md`, and `docs/CURRENT-QA-NOTES.md` for current behavior and QA status. The implementation breakdown and open questions below are retained for decision history, not as the current task list.
 
 ## Background
 
-`NEW_PRD.md` is now the product authority. Existing code and docs are prototype/Milestone 0 context only.
+`NEW_PRD.md` is the product authority. At the time this design was written, existing code and docs were prototype/Milestone 0 context only.
 
-The current scaffold is useful, but it does not implement the product bet:
+The old scaffold was useful, but it did not implement the product bet:
 
 ```text
 hotkey -> select region -> annotate in place -> copy/save -> disappear
 ```
 
-Current scaffold shape:
+Old scaffold shape at design time:
 
 ```text
                       ┌────────────────────┐

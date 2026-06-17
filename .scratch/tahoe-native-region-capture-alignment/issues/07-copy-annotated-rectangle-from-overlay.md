@@ -47,17 +47,17 @@ Annotation identity must be stable after creation. Do not use a computed identif
 - Keyboard handling should route `Cmd+Z` to undo when annotation mode is active and keep `Esc` as cancel/close.
 
 **Acceptance criteria:**
-- [ ] Completing a valid region selection captures the base image and leaves the user on the same overlay surface in annotation mode.
-- [ ] The toolbar is hidden before a valid region exists and visible after the base image is ready.
-- [ ] Dragging inside the selected image area while Rectangle is active creates a rectangle annotation.
-- [ ] Stored rectangle geometry is in captured-image coordinates and exports at the correct visual position/size in the copied PNG.
-- [ ] Each created annotation has stable identity for its lifetime.
-- [ ] `Cmd+Z` removes the most recently created rectangle annotation.
-- [ ] Toolbar Undo removes the most recently created rectangle annotation.
-- [ ] Copy writes a flattened PNG containing the base image and all remaining rectangle annotations to `NSPasteboard`.
-- [ ] Successful annotated copy closes all overlay UI.
-- [ ] This flow does not open or depend on the old separate screenshot editor window.
-- [ ] `swift build` succeeds.
+- [x] Completing a valid region selection captures the base image and leaves the user on the same overlay surface in annotation mode.
+- [x] The toolbar is hidden before a valid region exists and visible after the base image is ready.
+- [x] Dragging inside the selected image area while Rectangle is active creates a rectangle annotation.
+- [x] Stored rectangle geometry is in captured-image coordinates and exports at the correct visual position/size in the copied PNG.
+- [x] Each created annotation has stable identity for its lifetime.
+- [x] `Cmd+Z` removes the most recently created rectangle annotation.
+- [x] Toolbar Undo removes the most recently created rectangle annotation.
+- [x] Copy writes a flattened PNG containing the base image and all remaining rectangle annotations to `NSPasteboard`.
+- [x] Successful annotated copy closes all overlay UI.
+- [x] This flow does not open or depend on the old separate screenshot editor window.
+- [x] `swift build` succeeds.
 
 **Out of scope:**
 - Arrow annotations.
@@ -85,4 +85,5 @@ Annotation identity must be stable after creation. Do not use a computed identif
 - Copy renders the captured image plus rectangle annotations into flattened PNG data before writing to `NSPasteboard` and closing.
 - Removed the stale computed `Annotation.id` from the old editor scaffold so it no longer advertises unstable identity.
 - Verified with `swift build`.
-- Manual overlay and paste-target QA was not run in this pass.
+- Initial implementation pass did not run manual overlay and paste-target QA.
+- Follow-up manual QA passed on 2026-06-17 per project owner report.

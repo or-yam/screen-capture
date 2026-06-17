@@ -91,18 +91,18 @@ The app should behave consistently across:
 
 ### 4.4 Customizable
 
-Users should be able to configure:
+Current MVP customization:
 
-* Global capture shortcut.
-* Default action after capture: copy, save, or open editor.
 * Default save folder.
-* Filename pattern.
 * Default annotation color.
 * Default stroke width.
+
+Later customization:
+
+* Global capture shortcut.
+* Filename pattern.
 * Whether to include cursor.
 * Whether to play capture sound.
-* Whether to show floating toolbar.
-* Whether to copy automatically after annotation.
 * Output format, with PNG as the default.
 
 ### 4.5 Native-Feeling
@@ -124,7 +124,7 @@ Native behaviors should include:
 ### 5.1 Default Capture Flow
 
 1. User presses global shortcut.
-2. App displays a full-screen transparent overlay across all active displays.
+2. App displays a frozen snapshot-backed overlay across all active displays.
 3. User drags to select a rectangular region.
 4. Selected region remains visible while the rest of the screen is dimmed.
 5. App captures the selected region.
@@ -134,7 +134,6 @@ Native behaviors should include:
 
    * `Cmd+C` to copy final annotated PNG.
    * `Cmd+S` to save.
-   * `Enter` to perform default action.
    * `Esc` to cancel.
 9. Overlay closes.
 
@@ -146,7 +145,7 @@ For users who do not need annotations every time:
 Hotkey → drag region → Cmd+C
 ```
 
-Optionally:
+Later optional mode:
 
 ```text
 Hotkey → drag region → auto-copy
@@ -278,23 +277,12 @@ screenshot-{timestamp}.png
 
 ## 6.5 Settings
 
-### Required Settings
+### MVP Settings
 
-* Global capture shortcut.
-* Default output behavior:
-
-  * Open editor
-  * Copy immediately
-  * Save immediately
-  * Copy after pressing Enter
 * Default save location.
-* Filename template.
 * Default annotation color.
 * Default stroke width.
-* Show/hide capture dimensions.
-* Show/hide floating toolbar.
-* Launch at login.
-* Show menu bar icon.
+* Display the current hardcoded shortcut.
 
 ### Later Settings
 
@@ -303,6 +291,11 @@ screenshot-{timestamp}.png
   * System
   * Light
   * Dark
+* Configurable global capture shortcut.
+* Filename template.
+* Show/hide capture dimensions.
+* Launch at login.
+* Show/hide menu bar icon.
 * Custom toolbar layout.
 * Per-tool defaults.
 * Export quality.
@@ -466,8 +459,8 @@ Responsibilities:
 
 * Maintain annotation model.
 * Render annotations on screen.
-* Support selection, move, resize, delete.
-* Support undo/redo.
+* Support selection, move, resize, delete in later editing passes.
+* Support undo for MVP; redo can come later.
 * Render final flattened image.
 
 ### Export Manager
@@ -540,31 +533,28 @@ struct AnnotationStyle {
 * Arrow tool.
 * Rectangle tool.
 * Text tool.
-* Blur/redact rectangle tool.
-* Undo/redo.
+* Draw/freehand tool.
+* Highlight tool.
+* Undo.
 * Copy final PNG to clipboard.
 * Save final PNG to default folder.
 * Basic settings:
 
-  * Shortcut
   * Save folder
   * Default color
   * Default stroke width
-  * Launch at login
 
 ## 9.2 MVP Should Have
 
 * Multi-display support.
 * Retina correctness.
-* Move/resize selected region.
-* Move/delete annotations.
 * Lightweight confirmation after copy/save.
 * Clear permission onboarding.
+* Move/resize selected region.
+* Move/delete annotations.
 
 ## 9.3 MVP Could Have
 
-* Freehand pen.
-* Highlight tool.
 * Window capture.
 * Delayed capture.
 * Auto-copy mode.
@@ -592,7 +582,7 @@ Toolbar should be compact and floating.
 Suggested order:
 
 ```text
-Arrow | Rect | Pen | Text | Blur | Color | Width | Undo | Copy | Save | Close
+Arrow | Text | Rect | Pen | Highlight | Color | Width | Undo | Copy | Save | Close
 ```
 
 Toolbar requirements:
@@ -605,22 +595,14 @@ Toolbar requirements:
 
 ## 10.3 Keyboard Shortcuts
 
-Suggested defaults:
+MVP defaults:
 
 ```text
-Capture: Cmd+Shift+2 or user-configurable
+Capture: Cmd+Shift+A
 Copy: Cmd+C
 Save: Cmd+S
 Cancel: Esc
 Undo: Cmd+Z
-Redo: Cmd+Shift+Z
-Arrow: A
-Rectangle: R
-Pen: P
-Text: T
-Blur: B
-Delete annotation: Delete
-Confirm default action: Enter
 ```
 
 The default capture shortcut should avoid conflicting with Apple’s built-in screenshot shortcuts:
@@ -745,7 +727,9 @@ Scope:
 * Rectangle tool.
 * Arrow tool.
 * Text tool.
-* Undo/redo.
+* Draw tool.
+* Highlight tool.
+* Undo.
 * Copy/save final rendered image.
 
 ### Milestone 3: Reliability Pass
@@ -769,9 +753,7 @@ Scope:
 
 * Shortcut editor.
 * Color/stroke defaults.
-* Toolbar preferences.
 * Launch at login.
-* Default action preferences.
 
 ### Milestone 5: Polish
 
@@ -783,7 +765,7 @@ Scope:
 * Better toolbar placement.
 * Keyboard-first workflows.
 * Improved text editing.
-* Blur/redaction polish.
+* Optional redaction polish.
 * App icon and onboarding.
 
 ## 16. Open Questions
@@ -793,7 +775,7 @@ Scope:
 * Should the app be sandboxed?
 * Should capture history exist at all?
 * Should uploads/sharing be added later?
-* Should the app support window capture in MVP?
+* Should the app support window capture after the region-capture MVP?
 * Should annotations remain editable after saving, or is export-only enough?
 * Should the app support custom themes or stay fully system-native?
 * Should the app avoid Accessibility permission entirely?
@@ -805,8 +787,8 @@ For the first working version:
 ```text
 Swift + AppKit
 Menu bar app
-CoreGraphics or ScreenCaptureKit for capture
-Custom AppKit overlay/editor
+ScreenCaptureKit for capture
+Custom AppKit overlay annotation surface
 NSPasteboard PNG output
 PNG file export
 UserDefaults-based settings

@@ -21,7 +21,7 @@ The current transparent overlay proves the app owns input, but it still leaves t
 - [x] App switching or content changes underneath the overlay do not change the visible capture session after it starts.
 - [x] Raw selected-region copy/export matches the frozen snapshot content the user selected.
 - [x] Annotated PNG copy/export flattens annotations over the selected crop from the frozen snapshot.
-- [ ] Retina and multi-display coordinate behavior remains consistent with the global display-space selection model.
+- [x] Retina and multi-display coordinate behavior remains consistent with the global display-space selection model.
 
 ## Blocked by
 
@@ -39,4 +39,5 @@ The current transparent overlay proves the app owns input, but it still leaves t
 - Implemented startup display snapshot capture in `CaptureCoordinator` and `ScreenCaptureKitScreenshotService`.
 - `RegionCaptureOverlayController` now renders frozen snapshots behind the overlay, crops the selected region from those snapshots, and uses the resulting image for annotation, copy, and save.
 - Manual QA on the tested single-display setup confirmed the frozen overlay behavior and did not reproduce the previous launch flicker.
-- Multi-display behavior still needs explicit QA before treating it as fully verified.
+- Initial implementation left multi-display behavior pending explicit QA.
+- Follow-up manual QA passed on 2026-06-17 per project owner report, including Retina and multi-display behavior.

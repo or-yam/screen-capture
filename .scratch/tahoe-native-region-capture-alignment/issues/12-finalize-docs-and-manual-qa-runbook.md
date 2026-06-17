@@ -1,6 +1,6 @@
 # Finalize Docs And Manual QA Runbook
 
-Status: needs-triage
+Status: done
 Type: AFK
 
 ## Parent
@@ -13,11 +13,11 @@ After the native overlay flow exists, update the user-facing docs and manual QA 
 
 ## Acceptance criteria
 
-- [ ] README describes the current native region capture, annotation, copy, and save flow accurately.
-- [ ] Architecture docs match the implemented session, overlay, ScreenCaptureKit, annotation, and export boundaries.
-- [ ] Legacy prototype docs are deleted or clearly marked as historical.
-- [ ] Manual QA covers launch, menu capture, hotkey capture, single-display copy, multi-display copy, Retina dimensions, annotation copy, save, `Esc`, and permission denial.
-- [ ] Docs do not advertise window capture, full-screen capture, auto-copy-after-save, or separate editor-window MVP behavior.
+- [x] README describes the current native region capture, annotation, copy, and save flow accurately.
+- [x] Architecture docs match the implemented session, overlay, ScreenCaptureKit, annotation, and export boundaries.
+- [x] Legacy prototype docs are deleted or clearly marked as historical.
+- [x] Manual QA covers launch, menu capture, hotkey capture, single-display copy, multi-display copy, Retina dimensions, annotation copy, save, `Esc`, and permission denial.
+- [x] Docs do not advertise window capture, full-screen capture, auto-copy-after-save, or separate editor-window MVP behavior.
 
 ## Blocked by
 
@@ -29,3 +29,6 @@ After the native overlay flow exists, update the user-facing docs and manual QA 
 
 ## Comments
 
+- README now describes the implemented menu-bar, frozen-snapshot overlay, annotation, copy, save, preferences, and legacy-scaffold status.
+- Architecture docs now describe current implementation boundaries instead of only the target architecture.
+- `docs/CURRENT-QA-NOTES.md` now contains the manual QA runbook and records the passing 2026-06-17 QA status reported by the project owner.

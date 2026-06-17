@@ -13,12 +13,12 @@ Extend the raw copy tracer bullet so region selection, capture, and clipboard ou
 
 ## Acceptance criteria
 
-- [ ] Region selection stores one canonical global display-space rectangle for the session.
-- [ ] Copy works for selections on each attached display.
-- [ ] Copy works for selections in negative-coordinate display arrangements.
-- [ ] Exported PNG dimensions match the selected region at the expected display scale.
-- [ ] Diagnostic logging includes display frames, selected rect, capture rect, and output image size when capture fails or geometry looks invalid.
-- [ ] Existing single-display copy behavior remains intact.
+- [x] Region selection stores one canonical global display-space rectangle for the session.
+- [x] Copy works for selections on each attached display.
+- [x] Copy works for selections in negative-coordinate display arrangements.
+- [x] Exported PNG dimensions match the selected region at the expected display scale.
+- [x] Diagnostic logging includes display frames, selected rect, capture rect, and output image size when capture fails or geometry looks invalid.
+- [x] Existing single-display copy behavior remains intact.
 
 ## Blocked by
 
@@ -33,4 +33,5 @@ Extend the raw copy tracer bullet so region selection, capture, and clipboard ou
 - The coordinator hides overlay windows during capture and restores them before showing the copy action or failure alert.
 - Verified with `swift build`.
 - `swift test` could not be completed in this sandbox: the normal run failed on Swift/Clang cache permissions, the escalated retry was denied, and a cache-redirected retry failed when SwiftPM tried to apply `sandbox-exec`. This project currently has no test suite.
-- Manual multi-display/Retina paste-target QA was not run in this non-interactive pass.
+- Initial non-interactive implementation pass did not run manual multi-display/Retina paste-target QA.
+- Follow-up manual QA passed on 2026-06-17 per project owner report, including multi-display and Retina behavior.

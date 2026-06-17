@@ -31,4 +31,5 @@ Make the first shippable tracer bullet: on a single display, select a region wit
 - Copy action and `Cmd+C` write PNG bytes to `NSPasteboard` as `.png` and close the overlay on success.
 - Verified with `swift build`.
 - `swift test` reaches the package but reports `no tests found`; there is no `Tests` target yet.
-- Manual paste-target QA was not run in this non-interactive pass.
+- Initial non-interactive implementation pass did not run manual paste-target QA.
+- Follow-up manual QA passed on 2026-06-17 per project owner report.

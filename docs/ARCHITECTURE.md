@@ -1,61 +1,62 @@
 # Architecture
 
-`NEW_PRD.md` is the product source of truth. This document describes the target architecture, not the deprecated prototype implementation.
+`NEW_PRD.md` is the product source of truth for the broader product. This document describes the current native region-capture MVP implementation.
 
-For the full design, see [../tech-designs/tahoe-native-region-capture-alignment.md](../tech-designs/tahoe-native-region-capture-alignment.md).
+For the fuller design background, see [../tech-designs/tahoe-native-region-capture-alignment.md](../tech-designs/tahoe-native-region-capture-alignment.md).
 
 ## Product Principle
 
 The app is output-first and overlay-first.
 
 ```text
-hotkey -> select region -> annotate in place -> copy/save -> disappear
+hotkey -> frozen screen overlay -> select region -> annotate in place -> copy/save -> disappear
 ```
 
-Avoid account systems, upload flows, history managers, public distribution mechanics, and heavy editor behavior until the personal Tahoe-native workflow works well.
+Avoid account systems, upload flows, history managers, public distribution mechanics, and heavy editor behavior until the personal native region workflow works well.
 
-## Target Platform
+## Platform
 
-- macOS Tahoe 26 only.
-- Personal-use app.
+- Personal-use macOS app.
 - Native macOS APIs wherever practical.
 - No sandboxing for MVP.
 - No App Store, notarization, auto-update, telemetry, or public release work for MVP.
+- `Package.swift` currently declares `.macOS(.v13)`.
+- Region capture requires macOS 15.2+ at runtime because it uses `SCScreenshotManager.captureImage(in:)`.
+- Tahoe-native remains the product direction, but the package manifest has not been raised to a Tahoe-specific platform spelling.
 
-## Target Components
+## Current Components
 
-- `AppShell`: menu bar presence, settings entry points, app lifecycle, permission messaging.
-- `GlobalShortcutManager`: registers the global region-capture shortcut and starts capture sessions.
-- `CaptureCoordinator`: owns screenshot session lifecycle, display geometry, cancellation, and output actions.
-- `ScreenCaptureKitService`: captures frozen display snapshots with ScreenCaptureKit.
-- `OverlayController`: owns AppKit overlay windows/views, frozen snapshot display, dimming, selection, keyboard handling, and toolbar placement.
-- `AnnotationEngine`: owns vector annotation state, stable annotation identity, image-space geometry, undo, and rendering commands.
-- `ExportManager`: flattens the captured image plus annotations into final PNG data.
+- `ScreenCaptureAllApp`: SwiftUI app entry point and accessory-app lifecycle.
+- `MenuBarController`: status item and menu actions for region capture, preferences, screenshot folder, and quit.
+- `GlobalShortcutManager`: registers hardcoded `Cmd-Shift-A` with Carbon `RegisterEventHotKey`; Accessibility permission is not required for this path.
+- `CaptureCoordinator`: starts sessions, captures frozen display snapshots, wires overlay output to copy/save, and owns close-on-success behavior.
+- `ScreenCaptureKitScreenshotService`: captures full-display snapshots and validates ScreenCaptureKit region capture.
+- `RegionCaptureOverlayController`: owns AppKit overlay windows, frozen snapshot rendering, selection, annotation toolbar, keyboard handling, permission/save errors, and image export preparation.
+- `RegionSelectionState`: stores selected-region state, frozen-snapshot crop, vector annotations, drafts, undo, and image-space geometry.
 - `ClipboardService`: writes PNG data to `NSPasteboard`.
 - `SaveService`: writes PNG data to the configured local save folder.
-- `PreferencesStore`: stores only useful personal defaults after the core flow works.
+- `PreferencesStore`: stores save folder, default annotation color, and default stroke width.
 
-## Target Architecture
+## Current Architecture
 
 ```text
 +------------------------+
 | Menu Bar App Shell     |
 | launch, settings,      |
-| status item, perms     |
+| status item            |
 +-----------+------------+
             |
             v
 +------------------------+
 | Hotkey Manager         |
-| registers capture      |
-| shortcut               |
+| Cmd-Shift-A            |
 +-----------+------------+
             |
             v
 +------------------------+
 | Capture Coordinator    |
-| session lifecycle,     |
-| display geometry       |
+| frozen snapshots,      |
+| copy/save lifecycle    |
 +-----+-------------+----+
       |             |
       v             v
@@ -69,14 +70,14 @@ Avoid account systems, upload flows, history managers, public distribution mecha
                  |
                  v
 +------------------------+
-| Annotation Engine      |
-| stable model, undo,    |
-| render preview         |
+| Region Selection State |
+| image-space vectors,   |
+| drafts, undo           |
 +-----------+------------+
             |
             v
 +------------------------+
-| Export Manager         |
+| Overlay Render Path    |
 | flatten PNG, copy,     |
 | save                   |
 +------------------------+
@@ -84,36 +85,36 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 
 ## Capture Strategy
 
-MVP capture must use ScreenCaptureKit first.
+Capture uses ScreenCaptureKit first.
 
-Use `SCScreenshotManager` to capture full-display or per-display snapshots at session start. The selected rectangle should be represented in screen/display-space points and cropped from those frozen snapshots for preview, annotation, copy, and save.
+At session start, `CaptureCoordinator` asks `ScreenCaptureKitScreenshotService` for one frozen snapshot per active display. The overlay displays those frozen snapshots and `RegionSelectionState` crops the selected region from them for preview, annotation, copy, and save. This avoids the old live-desktop overlay behavior and keeps exported output aligned with what the user selected.
 
 Do not extend the `/usr/sbin/screencapture` path. It was useful prototype scaffolding, but it cannot support the target workflow because the app does not own the selection UI.
 
-CoreGraphics fallback is not planned for MVP unless Tahoe-native ScreenCaptureKit APIs prove insufficient during implementation.
+CoreGraphics fallback is not planned for MVP unless ScreenCaptureKit APIs prove insufficient.
 
 ## Overlay Strategy
 
-The custom overlay is MVP foundation, not polish.
+The custom overlay is the MVP foundation, not polish.
 
-Requirements:
+Current behavior:
 
-- Borderless AppKit overlay backed by the frozen display snapshot.
-- Covers active displays.
-- Dims outside the selection.
-- Shows crosshair and selection rectangle during drag.
-- Optionally shows pixel dimensions during drag.
-- Mouse-up immediately enters annotation mode.
-- Toolbar appears only after region selection.
-- `Esc` cancels and closes.
+- Borderless AppKit overlay windows backed by frozen display snapshots.
+- One overlay window per active `NSScreen`.
+- Outside-region dimming.
+- Visible selection rectangle during drag.
+- Mouse-up enters annotation mode on the same overlay surface.
+- Toolbar appears only after a valid region exists.
+- `Esc` cancels and closes without output.
+- Copy/save success closes all overlay windows.
 
-Prefer one overlay window per display coordinated by one session object. Store selection in global display space, not in a single window's local coordinate system.
+The implementation stores one canonical selected rectangle on `RegionSelectionState` and coordinates all overlay windows through one session object.
 
 ## Annotation Strategy
 
 Annotations stay vector-based until export.
 
-MVP tools:
+Current tools:
 
 - Arrow.
 - Text.
@@ -130,15 +131,15 @@ Not MVP:
 - Dedicated redaction.
 - Ellipse/circle.
 - Line.
-- Redo unless it naturally falls out of the undo model.
+- Redo.
 
-Model requirements:
+Model behavior:
 
-- Annotation identity must be stable at creation time.
-- Source-of-truth coordinates should be image-space.
-- Coordinate transforms should be centralized.
-- Text should be click-to-place and editable before commit.
-- No hardcoded sample text insertion.
+- Annotation identity is stable at creation time.
+- Source-of-truth annotation coordinates are image-space.
+- Text is click-to-place and editable before commit.
+- No hardcoded sample text is inserted in the current overlay flow.
+- Undo removes the active draft or latest committed annotation.
 
 ## Output Strategy
 
@@ -148,28 +149,30 @@ Copy and Save are explicit separate actions.
 - `Save` writes final PNG data to the configured folder and closes on success.
 - `Esc` closes without output.
 - `Enter` has no MVP behavior.
+- `defaultAction`, `copyAfterSave`, and `showFloatingToolbar` are not part of the current preferences model.
 
-Remove `defaultAction`, `copyAfterSave`, and `showFloatingToolbar` from the target model.
+## Legacy Prototype Modules
 
-## Current Prototype Modules
+The following modules remain in the source tree as historical scaffold code and should not define new MVP work:
 
-The following current modules may be salvaged but should not define target architecture:
+- `ScreenshotEditorWindowController` and `ScreenshotEditorView`: deprecated separate editor surface. The current region flow does not open it.
+- `AnnotationModel`: old SwiftUI editor annotation model with non-MVP tools such as ellipse and blur. The current overlay uses `OverlayAnnotation` in `RegionCaptureOverlayController` instead.
+- `Renderer`: older render boundary retained in source, but the current overlay flow flattens its own annotation model for copy/save.
 
-- `ClipboardService`: mostly aligned.
-- `SaveService`: keep concept, remove old preferences and clarify filename policy.
-- `Renderer`: keep concept, update for the new annotation model and highlight.
-- `PreferencesStore`: trim stale preferences.
-- `CaptureCoordinator`: replace `screencapture` orchestration with session lifecycle.
-- `ScreenshotEditorWindowController` and `ScreenshotEditorView`: deprecated as the target editor surface.
+## Completed MVP Slices
 
-## Roadmap
+1. Menu and global shortcut start the native region flow.
+2. Capture sessions use frozen ScreenCaptureKit display snapshots.
+3. AppKit overlays cover active displays and own region selection.
+4. Copy and save explicit PNG output.
+5. Overlay annotation mode supports Arrow, Text, Rectangle, Draw, Highlight, Color, Stroke size, and Undo.
+6. Copy/save flatten annotations over the selected frozen snapshot crop.
+7. Screen Recording denial is surfaced with a targeted alert and System Settings action.
+8. Manual QA has passed for the current MVP flow per the project QA notes.
 
-1. Align docs and remove stale claims.
-2. Remove stale menu actions and preferences from the visible UI.
-3. Raise platform target to Tahoe 26 when local toolchain support is clear.
-4. Implement ScreenCaptureKit region capture service.
-5. Implement AppKit overlay region selection.
-6. Copy selected region PNG without annotations.
-7. Add overlay annotation mode and toolbar.
-8. Add final rendering, copy, save, and close behavior.
-9. Validate Retina and multi-display correctness.
+## Remaining Non-MVP Follow-Ups
+
+- Movable/resizable selected region after initial drag.
+- User-configurable global shortcut.
+- Removing or archiving legacy editor scaffold code.
+- Raising the package platform spelling when the local toolchain supports the intended Tahoe target cleanly.
