@@ -6,13 +6,16 @@ final class CaptureCoordinator {
     private let screenshotService: ScreenshotCapturing
     private let clipboardService: ClipboardService
     private let saveService: SaveService
+    private let preferences: PreferencesStore
 
     init(
+        preferences: PreferencesStore,
         overlayController: RegionCaptureOverlayController? = nil,
         screenshotService: ScreenshotCapturing = ScreenCaptureKitScreenshotService(),
         clipboardService: ClipboardService = ClipboardService(),
         saveService: SaveService
     ) {
+        self.preferences = preferences
         self.screenshotService = screenshotService
         self.clipboardService = clipboardService
         self.saveService = saveService
@@ -35,7 +38,11 @@ final class CaptureCoordinator {
                 let displays = DisplayGeometry.currentDisplays()
                 let snapshots = try await screenshotService.captureDisplaySnapshots(displays: displays)
                 NSLog("CaptureCoordinator: captured \(snapshots.count) frozen display snapshots.")
-                overlayController.start(snapshots: snapshots)
+                overlayController.start(
+                    snapshots: snapshots,
+                    defaultAnnotationColor: preferences.defaultAnnotationColor,
+                    defaultAnnotationStrokeWidth: preferences.defaultAnnotationStrokeWidth
+                )
             } catch {
                 NSLog("CaptureCoordinator: frozen snapshot capture failed: \(error.localizedDescription)")
                 overlayController.showCaptureError(error)

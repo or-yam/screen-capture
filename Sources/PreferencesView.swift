@@ -6,14 +6,21 @@ struct PreferencesView: View {
 
     var body: some View {
         Form {
-            Picker("Default action", selection: $preferences.defaultAction) {
-                ForEach(DefaultAction.allCases) { action in
-                    Text(action.rawValue).tag(action)
+            ColorPicker(
+                "Default annotation color",
+                selection: Binding(
+                    get: { Color(nsColor: preferences.defaultAnnotationColor) },
+                    set: { preferences.defaultAnnotationColor = NSColor($0) }
+                ),
+                supportsOpacity: false
+            )
+
+            Picker("Default stroke size", selection: $preferences.defaultAnnotationStrokeWidth) {
+                ForEach(PreferencesStore.annotationStrokeWidths, id: \.self) { width in
+                    Text("\(Int(width)) px").tag(width)
                 }
             }
-
-            Toggle("Copy after save", isOn: $preferences.copyAfterSave)
-            Toggle("Show floating toolbar", isOn: $preferences.showFloatingToolbar)
+            .pickerStyle(.segmented)
 
             HStack {
                 Text("Save folder")

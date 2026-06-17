@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         let captureCoordinator = CaptureCoordinator(
+            preferences: preferences,
             saveService: SaveService(preferences: preferences)
         )
         self.captureCoordinator = captureCoordinator

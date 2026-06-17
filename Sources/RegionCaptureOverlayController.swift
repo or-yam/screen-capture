@@ -8,7 +8,11 @@ final class RegionCaptureOverlayController {
     private var windows: [RegionCaptureOverlayWindow] = []
     private var selectionState = RegionSelectionState()
 
-    func start(snapshots: [DisplaySnapshot]) {
+    func start(
+        snapshots: [DisplaySnapshot],
+        defaultAnnotationColor: NSColor,
+        defaultAnnotationStrokeWidth: CGFloat
+    ) {
         NSLog("RegionCapture: starting overlay session.")
         cancel()
 
@@ -27,6 +31,8 @@ final class RegionCaptureOverlayController {
                 copy: { [weak self] data in self?.onCopy?(data) },
                 save: { [weak self] data in self?.onSave?(data) },
                 selectionCompleted: { [weak self] rect in self?.setSelectedRegionFromFrozenSnapshots(rect) },
+                defaultAnnotationColor: defaultAnnotationColor,
+                defaultAnnotationStrokeWidth: defaultAnnotationStrokeWidth,
                 refresh: { [weak self] in self?.refreshOverlays() }
             )
             window.orderFrontRegardless()
@@ -505,6 +511,8 @@ final class RegionCaptureOverlayWindow: NSWindow {
         copy: @escaping (Data) -> Void,
         save: @escaping (Data) -> Void,
         selectionCompleted: @escaping (CGRect) -> Void,
+        defaultAnnotationColor: NSColor,
+        defaultAnnotationStrokeWidth: CGFloat,
         refresh: @escaping () -> Void
     ) {
         overlayView = RegionCaptureOverlayView(
@@ -514,6 +522,8 @@ final class RegionCaptureOverlayWindow: NSWindow {
             copy: copy,
             save: save,
             selectionCompleted: selectionCompleted,
+            defaultAnnotationColor: defaultAnnotationColor,
+            defaultAnnotationStrokeWidth: defaultAnnotationStrokeWidth,
             refresh: refresh
         )
 
@@ -567,8 +577,8 @@ final class RegionCaptureOverlayView: NSView {
     private let saveButton = SolidActionButton(symbolName: "square.and.arrow.down", accessibilityDescription: "Save")
     private let closeButton = SolidActionButton(symbolName: "xmark", accessibilityDescription: "Close")
     private var activeAnnotationTool: OverlayAnnotationTool?
-    private var selectedColor = NSColor.systemRed
-    private var selectedStrokeIndex = 1
+    private var selectedColor: NSColor
+    private var selectedStrokeIndex: Int
     private var colorPopover: NSPopover?
     private var strokePopover: NSPopover?
     private var activeTextField: AnnotationTextField?
@@ -582,7 +592,7 @@ final class RegionCaptureOverlayView: NSView {
         .white,
         .black
     ]
-    private static let availableStrokeWidths: [CGFloat] = [2, 4, 8, 12]
+    private static let availableStrokeWidths = PreferencesStore.annotationStrokeWidths
     private static let toolbarButtonSize = NSSize(width: 30, height: 30)
     private static let toolbarPadding: CGFloat = 5
     private static let toolbarGap: CGFloat = 4
@@ -594,6 +604,8 @@ final class RegionCaptureOverlayView: NSView {
         copy: @escaping (Data) -> Void,
         save: @escaping (Data) -> Void,
         selectionCompleted: @escaping (CGRect) -> Void,
+        defaultAnnotationColor: NSColor,
+        defaultAnnotationStrokeWidth: CGFloat,
         refresh: @escaping () -> Void
     ) {
         self.selectionState = selectionState
@@ -601,6 +613,8 @@ final class RegionCaptureOverlayView: NSView {
         self.copy = copy
         self.save = save
         self.selectionCompleted = selectionCompleted
+        self.selectedColor = defaultAnnotationColor
+        self.selectedStrokeIndex = Self.nearestStrokeIndex(for: defaultAnnotationStrokeWidth)
         self.refresh = refresh
         super.init(frame: frameRect)
 
@@ -1393,6 +1407,12 @@ final class RegionCaptureOverlayView: NSView {
 
     private var selectedStrokeWidth: CGFloat {
         Self.availableStrokeWidths[selectedStrokeIndex]
+    }
+
+    private static func nearestStrokeIndex(for width: CGFloat) -> Int {
+        availableStrokeWidths.enumerated().min { lhs, rhs in
+            abs(lhs.element - width) < abs(rhs.element - width)
+        }?.offset ?? 1
     }
 
     private var selectedTextFontSize: CGFloat {
