@@ -40,6 +40,7 @@ Read these first:
 - [NEW_PRD.md](NEW_PRD.md)
 - [tech-designs/tahoe-native-region-capture-alignment.md](tech-designs/tahoe-native-region-capture-alignment.md)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
 
 ## Build And Run
 
@@ -50,7 +51,7 @@ swift build
 swift run ScreenCaptureAll
 ```
 
-The app currently runs as a menu bar utility. A real `.app` bundle may be needed as the native overlay, permissions, and launch behavior mature.
+For personal installation or GitHub Releases, package the release binary into a real `.app` bundle and distribute a zipped app first. A DMG can be added later for polish. See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md).
 
 The package currently declares `.macOS(.v13)` in `Package.swift`, while the capture implementation requires macOS 15.2+ at runtime because it uses `SCScreenshotManager.captureImage(in:)`. The broader product direction remains Tahoe-native, but the package manifest has not been raised to a Tahoe-specific spelling.
 
