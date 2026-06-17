@@ -1,6 +1,6 @@
 # Distribution
 
-This project is a personal-use macOS app. Distribution should stay simple until there is a real need for public release polish.
+This project started as a personal-use macOS app. Distribution should stay simple for local development, but the new product goal is to identify the work required to make it feel like a top-tier macOS app.
 
 ## Goals
 
@@ -8,6 +8,18 @@ This project is a personal-use macOS app. Distribution should stay simple until 
 - Provide a downloadable GitHub Release asset for personal install.
 - Avoid Mac App Store, auto-update, telemetry, and installer complexity for now.
 - Do not convert to an Xcode project just for packaging unless SwiftPM packaging becomes painful.
+
+## Roadmap Shift
+
+The next quality roadmap should evaluate, in order:
+
+- A reliable `.app` bundle with stable identity and permissions behavior.
+- Developer ID signing and notarization for low-friction direct download.
+- A polished DMG only after ZIP releases are working cleanly.
+- Launch-at-login, permission onboarding, and settings UX only if they preserve the fast menu-bar utility model.
+- Automated tests and a documented manual QA matrix before broader release.
+
+Do not add telemetry, upload services, App Store distribution, or auto-update by default. Those need explicit product decisions.
 
 ## Recommended Paths
 

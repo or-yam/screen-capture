@@ -4,11 +4,17 @@ import AppKit
 final class MenuBarController: NSObject {
     private let preferences: PreferencesStore
     private let captureCoordinator: CaptureCoordinator
+    private let openPreferencesAction: () -> Void
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
 
-    init(preferences: PreferencesStore, captureCoordinator: CaptureCoordinator) {
+    init(
+        preferences: PreferencesStore,
+        captureCoordinator: CaptureCoordinator,
+        openPreferencesAction: @escaping () -> Void
+    ) {
         self.preferences = preferences
         self.captureCoordinator = captureCoordinator
+        self.openPreferencesAction = openPreferencesAction
         super.init()
     }
 
@@ -39,8 +45,7 @@ final class MenuBarController: NSObject {
     }
 
     @objc private func openPreferences() {
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
-        NSApp.activate(ignoringOtherApps: true)
+        openPreferencesAction()
     }
 
     @objc private func quit() {

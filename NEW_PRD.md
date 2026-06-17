@@ -658,6 +658,8 @@ The app should avoid Accessibility permission in MVP unless the selected hotkey/
 
 ### User Preferences
 
+Recent progress: the app configuration/preferences menu entry point has been fixed so the menu-bar accessory app opens a retained native settings window. Human status-menu click-through QA is still useful because automated status-bar clicking was blocked by local macOS privacy permissions.
+
 * Capture shortcut.
 * Default save folder.
 * Filename pattern.
@@ -754,6 +756,18 @@ Scope:
 * Shortcut editor.
 * Color/stroke defaults.
 * Launch at login.
+
+### Milestone 4.5: Top macOS App Quality Pass
+
+Goal: turn the working MVP into a native-feeling daily-driver app.
+
+Scope:
+
+* Keep the fixed Preferences/config entry point covered by QA and future regression tests.
+* Improve settings, onboarding, permission, and error-state UX.
+* Add automated regression tests around preferences, geometry, annotation state, export, and packaging-safe seams.
+* Harden manual QA across display arrangements, macOS permission states, clipboard destinations, and save-folder failures.
+* Improve distribution with stable app identity, signing/notarization readiness, and release packaging docs.
 
 ### Milestone 5: Polish
 

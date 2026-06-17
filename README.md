@@ -13,7 +13,7 @@ The MVP is region capture only. Window capture, full-screen capture, history, up
 ## Current Behavior
 
 - Launches as a menu-bar accessory app.
-- Exposes `Capture Region`, `Open Screenshot Folder`, `Preferences`, and `Quit` from the status menu.
+- Exposes `Capture Region`, `Open Screenshot Folder`, `Preferences`, and `Quit` from the status menu. The Preferences entry point now opens a retained native settings window from the menu-bar accessory app.
 - Registers a hardcoded global shortcut: `Cmd-Shift-A`.
 - Starts each capture session by taking frozen ScreenCaptureKit snapshots of active displays.
 - Shows app-owned borderless AppKit overlay windows over active displays.
@@ -41,6 +41,7 @@ Read these first:
 - [tech-designs/tahoe-native-region-capture-alignment.md](tech-designs/tahoe-native-region-capture-alignment.md)
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md)
+- [tech-designs/top-macos-app-quality-roadmap.md](tech-designs/top-macos-app-quality-roadmap.md)
 
 ## Build And Run
 
@@ -80,6 +81,8 @@ The current MVP is expected to satisfy:
 10. Output is correct on Retina and multi-display setups.
 
 The latest manual QA pass is recorded in [docs/CURRENT-QA-NOTES.md](docs/CURRENT-QA-NOTES.md).
+
+Recent progress: the broken Preferences/config menu entry point was fixed under `.scratch/top-macos-app/issues/01-fix-config-menu-entrypoint.md`. Full status-menu click automation still needs local macOS Apple Events/Accessibility permission if automated QA is desired.
 
 ## Permissions
 
