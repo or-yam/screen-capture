@@ -28,6 +28,7 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 
 - `ScreenCaptureAllApp`: SwiftUI app entry point and accessory-app lifecycle.
 - `MenuBarController`: status item and menu actions for region capture, preferences, screenshot folder, and quit.
+- `PreferencesWindowController`: retained AppKit settings window hosting the SwiftUI `PreferencesView` so Preferences opens reliably from an accessory menu-bar app.
 - `GlobalShortcutManager`: registers hardcoded `Cmd-Shift-A` with Carbon `RegisterEventHotKey`; Accessibility permission is not required for this path.
 - `CaptureCoordinator`: starts sessions, captures frozen display snapshots, wires overlay output to copy/save, and owns close-on-success behavior.
 - `ScreenCaptureKitScreenshotService`: captures full-display snapshots and validates ScreenCaptureKit region capture.
@@ -151,6 +152,8 @@ Copy and Save are explicit separate actions.
 - `Enter` has no MVP behavior.
 - `defaultAction`, `copyAfterSave`, and `showFloatingToolbar` are not part of the current preferences model.
 
+The Preferences/config entry point is handled by a retained AppKit window controller instead of SwiftUI's private `showSettingsWindow:` target-action path, which did not reliably create a settings window in the accessory app shell.
+
 ## Legacy Prototype Modules
 
 The following modules remain in the source tree as historical scaffold code and should not define new MVP work:
@@ -169,6 +172,7 @@ The following modules remain in the source tree as historical scaffold code and 
 6. Copy/save flatten annotations over the selected frozen snapshot crop.
 7. Screen Recording denial is surfaced with a targeted alert and System Settings action.
 8. Manual QA has passed for the current MVP flow per the project QA notes.
+9. Preferences opens from the app shell through the retained native settings window path.
 
 ## Remaining Non-MVP Follow-Ups
 
@@ -176,3 +180,4 @@ The following modules remain in the source tree as historical scaffold code and 
 - User-configurable global shortcut.
 - Removing or archiving legacy editor scaffold code.
 - Raising the package platform spelling when the local toolchain supports the intended Tahoe target cleanly.
+- Release-grade app quality work is tracked separately in [../tech-designs/top-macos-app-quality-roadmap.md](../tech-designs/top-macos-app-quality-roadmap.md): native settings/onboarding polish, automated regression tests, signed/notarized distribution, and a broader manual QA matrix.

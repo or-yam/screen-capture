@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
     private var captureCoordinator: CaptureCoordinator?
     private var globalShortcutManager: GlobalShortcutManager?
+    private var preferencesWindowController: PreferencesWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -31,7 +32,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuBarController = MenuBarController(
             preferences: preferences,
-            captureCoordinator: captureCoordinator
+            captureCoordinator: captureCoordinator,
+            openPreferencesAction: { [weak self] in
+                self?.showPreferences()
+            }
         )
         menuBarController?.install()
 
@@ -41,5 +45,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         globalShortcutManager?.start()
+    }
+
+    private func showPreferences() {
+        if preferencesWindowController == nil {
+            preferencesWindowController = PreferencesWindowController(preferences: preferences)
+        }
+
+        preferencesWindowController?.showPreferences()
     }
 }

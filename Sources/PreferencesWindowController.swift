@@ -1,0 +1,31 @@
+import AppKit
+import SwiftUI
+
+@MainActor
+final class PreferencesWindowController: NSWindowController {
+    init(preferences: PreferencesStore) {
+        let hostingController = NSHostingController(rootView: PreferencesView(preferences: preferences))
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Preferences"
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.isReleasedWhenClosed = false
+        window.tabbingMode = .disallowed
+
+        super.init(window: window)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func showPreferences() {
+        if window?.isVisible != true {
+            window?.center()
+        }
+
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}

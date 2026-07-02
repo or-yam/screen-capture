@@ -4,9 +4,10 @@ These notes describe the current ScreenCaptureKit frozen-snapshot overlay implem
 
 ## General Status
 
-- Latest manual QA pass: passing.
+- Latest implementation progress: Preferences/config entry-point bug fixed on 2026-06-17.
 - QA result was reported by the project owner on 2026-06-17.
 - `swift build` should be run after code changes; this project currently has no test suite.
+- The Preferences/config menu action now uses a retained native settings window instead of the private SwiftUI `showSettingsWindow:` target-action path.
 
 ## Current MVP QA Runbook
 
@@ -15,6 +16,7 @@ Use this checklist before treating the current native region-capture flow as hea
 - Launch the menu-bar app with `swift run ScreenCaptureAll`.
 - Start capture from the menu item: `Capture Region`.
 - Start capture from the global shortcut: `Cmd-Shift-A`.
+- Confirm the Preferences/config menu item opens the settings UI before testing customization behavior.
 - Confirm capture starts from a frozen snapshot-backed overlay, not a live desktop view.
 - Drag a valid region on a single display.
 - Drag a valid region on each attached display.
@@ -39,11 +41,13 @@ Use this checklist before treating the current native region-capture flow as hea
 - Multi-display and Retina behavior passed the latest manual QA pass.
 - Menu capture and hotkey capture passed the latest manual QA pass.
 - Single-display copy, multi-display copy, annotation copy, save, `Esc`, and permission denial passed the latest manual QA pass.
+- Preferences/config app-shell path was reproduced failing with `showSettingsWindow:` and verified fixed with a visible key Preferences window. Full status-menu click automation was blocked by macOS Apple Events privacy on the agent machine.
 
 ## Known Issues
 
-- No current MVP-blocking issues are known from the latest manual QA pass.
+- Preferences/config still needs a local human click-through check from the actual status menu because automated status-bar clicking was blocked by macOS privacy on the agent machine.
 
 ## Follow-Up Improvements
 
 - After the user creates the initial capture region, the selected region could become draggable before final output. This is not currently treated as an MVP blocker.
+- A top-tier macOS app pass is now tracked separately under `.scratch/top-macos-app/` and `tech-designs/top-macos-app-quality-roadmap.md`, covering UI/UX polish, distribution, tests, and release readiness.
