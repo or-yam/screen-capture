@@ -8,6 +8,8 @@ final class PreferencesWindowController: NSWindowController {
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Preferences"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.setContentSize(NSSize(width: 620, height: 520))
+        window.minSize = NSSize(width: 560, height: 460)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
 
