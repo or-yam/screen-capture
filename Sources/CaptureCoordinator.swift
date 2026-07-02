@@ -6,6 +6,7 @@ final class CaptureCoordinator {
     private let screenshotService: ScreenshotCapturing
     private let clipboardService: ClipboardService
     private let saveService: SaveService
+    private let saveConfirmationToastController: SaveConfirmationToastController
     private let preferences: PreferencesStore
 
     init(
@@ -13,12 +14,14 @@ final class CaptureCoordinator {
         overlayController: RegionCaptureOverlayController? = nil,
         screenshotService: ScreenshotCapturing = ScreenCaptureKitScreenshotService(),
         clipboardService: ClipboardService = ClipboardService(),
-        saveService: SaveService
+        saveService: SaveService,
+        saveConfirmationToastController: SaveConfirmationToastController? = nil
     ) {
         self.preferences = preferences
         self.screenshotService = screenshotService
         self.clipboardService = clipboardService
         self.saveService = saveService
+        self.saveConfirmationToastController = saveConfirmationToastController ?? SaveConfirmationToastController()
         self.overlayController = overlayController ?? RegionCaptureOverlayController()
         self.overlayController.onCopy = { [weak self] data in
             self?.copyAndClose(data)
@@ -68,6 +71,9 @@ final class CaptureCoordinator {
             let outputURL = try saveService.savePNG(data)
             NSLog("CaptureCoordinator: save succeeded at \(outputURL.path); closing overlay.")
             overlayController.cancel()
+            if preferences.showsSaveConfirmation {
+                saveConfirmationToastController.showSavedFile(at: outputURL)
+            }
         } catch {
             NSLog("CaptureCoordinator: save failed: \(error.localizedDescription)")
             overlayController.showSaveError(error)

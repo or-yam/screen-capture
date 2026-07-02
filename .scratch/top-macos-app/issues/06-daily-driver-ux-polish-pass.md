@@ -18,9 +18,9 @@ The target feel is compact Glaze/Raycast-style utility UI: dense but readable, i
 - [ ] Review capture start, region selection, annotation toolbar, copy/save, cancel, and error states as one continuous flow.
 - [ ] Prioritize polish that reduces time-to-copy or prevents user confusion.
 - [ ] Improve toolbar placement, labels/tooltips, and keyboard-first behavior where needed.
-- [ ] Add internal toast-style confirmation for successful save; do not use macOS notifications.
+- [x] Add internal toast-style confirmation for successful save; do not use macOS notifications.
 - [ ] Avoid adding heavy editor, history, upload, or account concepts.
-- [ ] Update docs and QA notes for any changed behavior.
+- [x] Update docs and QA notes for any changed behavior.
 
 ## Recommended skills
 
@@ -92,10 +92,19 @@ As of 2026-07-02, the user wants a Glaze/Raycast-inspired look and feel and spec
 - No App Store, telemetry, accounts, or auto-update.
 - No broad toolbar redesign unless QA proves the current compact toolbar blocks real use.
 
+### Implementation notes
+
+- Added `SaveConfirmationToastController`, an app-owned transient panel shown after successful save.
+- The confirmation shows `Screenshot saved`, the saved filename, and a Reveal in Finder button.
+- Added a Settings toggle to disable successful-save confirmations.
+- The save flow still closes the overlay on success and does not request macOS notification permission.
+- Polished status-menu commands with SF Symbol images, clearer labels, visible `Cmd-Shift-A` for Capture Region, and a recoverable alert when the configured screenshots folder is missing, not a folder, unreadable, or cannot be opened.
+- Added shortcut-aware overlay tooltip/help text for Copy `Cmd-C`, Save `Cmd-S`, Undo `Cmd-Z`, and Cancel `Esc`.
+
 ### Suggested implementation slices
 
 1. Error recovery copy/actions for save, copy/render, and permissions.
 2. Internal save toast with reveal-in-Finder behavior.
 3. Toolbar presentation/placement pass.
-4. Shortcut-aware tooltips and status-menu command cleanup.
+4. Shortcut-aware tooltips and status-menu command cleanup. Implemented.
 5. Manual QA pass and docs update.

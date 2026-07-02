@@ -15,8 +15,11 @@ Use this checklist before treating the current native region-capture flow as hea
 
 - Launch the menu-bar app with `swift run ScreenCaptureAll`.
 - Start capture from the menu item: `Capture Region`.
+- Confirm the status menu shows `Capture Region` with `Cmd-Shift-A`, `Open Screenshots Folder`, `Preferences...`, and `Quit Screen Capture All`.
+- Temporarily configure a missing or inaccessible save folder and confirm `Open Screenshots Folder` shows a recoverable alert instead of failing silently.
 - Start capture from the global shortcut: `Cmd-Shift-A`.
 - Confirm the Preferences/config menu item opens the settings UI before testing customization behavior.
+- Confirm Settings can disable and re-enable successful-save confirmations.
 - Confirm capture starts from a frozen snapshot-backed overlay, not a live desktop view.
 - Drag a valid region on a single display.
 - Drag a valid region on each attached display.
@@ -26,9 +29,12 @@ Use this checklist before treating the current native region-capture flow as hea
 - Create Rectangle, Arrow, Draw, Highlight, and Text annotations.
 - Confirm Color and Stroke size controls affect newly created annotations.
 - Confirm Undo removes the active draft or most recent annotation.
+- Confirm overlay action tooltips expose existing shortcuts: Copy `Cmd-C`, Save `Cmd-S`, Undo `Cmd-Z`, and Cancel `Esc`.
 - Confirm `Cmd+C` and toolbar Copy write a flattened annotated PNG to the pasteboard and close the overlay.
 - Confirm the copied PNG pastes into normal local targets.
 - Confirm `Cmd+S` and toolbar Save write a flattened annotated PNG to the configured save folder and close the overlay.
+- Confirm successful Save shows the internal confirmation with the saved filename and a Reveal in Finder action when enabled, without requesting notification permission.
+- Confirm successful Save does not show the internal confirmation when disabled in Settings.
 - Confirm Save does not also copy to the pasteboard.
 - Deny or remove Screen Recording permission and confirm the app shows a targeted permission message with an Open System Settings action.
 

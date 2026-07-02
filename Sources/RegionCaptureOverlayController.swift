@@ -565,6 +565,7 @@ final class RegionCaptureOverlayView: NSView {
     private let refresh: () -> Void
     private let annotationToolbarBackground = FloatingToolbarBackgroundView()
     private let actionBarBackground = FloatingToolbarBackgroundView()
+    private let shortcutHelpView = OverlayShortcutHelpView()
     private let arrowButton = SolidActionButton(symbolName: "arrow.up.right", accessibilityDescription: "Arrow")
     private let textButton = SolidActionButton(symbolName: "textformat", accessibilityDescription: "Text")
     private let rectangleButton = SolidActionButton(symbolName: "rectangle", accessibilityDescription: "Rectangle")
@@ -572,16 +573,33 @@ final class RegionCaptureOverlayView: NSView {
     private let highlightButton = SolidActionButton(symbolName: "highlighter", accessibilityDescription: "Highlight")
     private let colorButton = SolidActionButton(symbolName: nil, accessibilityDescription: "Color")
     private let strokeButton = SolidActionButton(symbolName: "lineweight", accessibilityDescription: "Size")
-    private let undoButton = SolidActionButton(symbolName: "arrow.uturn.backward", accessibilityDescription: "Undo")
-    private let copyButton = SolidActionButton(symbolName: "doc.on.doc", accessibilityDescription: "Copy")
-    private let saveButton = SolidActionButton(symbolName: "square.and.arrow.down", accessibilityDescription: "Save")
-    private let closeButton = SolidActionButton(symbolName: "xmark", accessibilityDescription: "Close")
+    private let undoButton = SolidActionButton(
+        symbolName: "arrow.uturn.backward",
+        accessibilityDescription: "Undo",
+        helpText: "Undo (Cmd-Z)"
+    )
+    private let copyButton = SolidActionButton(
+        symbolName: "doc.on.doc",
+        accessibilityDescription: "Copy",
+        helpText: "Copy (Cmd-C)"
+    )
+    private let saveButton = SolidActionButton(
+        symbolName: "square.and.arrow.down",
+        accessibilityDescription: "Save",
+        helpText: "Save (Cmd-S)"
+    )
+    private let closeButton = SolidActionButton(
+        symbolName: "xmark",
+        accessibilityDescription: "Cancel",
+        helpText: "Cancel (Esc)"
+    )
     private var activeAnnotationTool: OverlayAnnotationTool?
     private var selectedColor: NSColor
     private var selectedStrokeIndex: Int
     private var colorPopover: NSPopover?
     private var strokePopover: NSPopover?
     private var activeTextField: AnnotationTextField?
+    private weak var shortcutHelpOwner: SolidActionButton?
     private static let availableColors: [NSColor] = [
         .systemRed,
         .systemOrange,
@@ -903,6 +921,10 @@ final class RegionCaptureOverlayView: NSView {
         closeButton.action = #selector(closeButtonPressed)
         closeButton.isHidden = true
         addSubview(closeButton)
+
+        [undoButton, copyButton, saveButton, closeButton].forEach(configureShortcutHelp)
+        shortcutHelpView.isHidden = true
+        addSubview(shortcutHelpView)
     }
 
     private func updateActionButtons() {
@@ -955,9 +977,51 @@ final class RegionCaptureOverlayView: NSView {
     private func hideFloatingControls() {
         annotationToolbarBackground.isHidden = true
         actionBarBackground.isHidden = true
+        hideShortcutHelp()
         [arrowButton, textButton, rectangleButton, drawButton, highlightButton, colorButton, strokeButton, undoButton, copyButton, saveButton, closeButton].forEach {
             $0.isHidden = true
         }
+    }
+
+    private func configureShortcutHelp(for button: SolidActionButton) {
+        guard let shortcutHelpText = button.shortcutHelpText else { return }
+        button.hoverChanged = { [weak self, weak button] isHovering in
+            guard let self, let button else { return }
+            if isHovering {
+                self.showShortcutHelp(shortcutHelpText, for: button)
+            } else {
+                self.hideShortcutHelp(for: button)
+            }
+        }
+    }
+
+    private func showShortcutHelp(_ text: String, for button: SolidActionButton) {
+        shortcutHelpOwner = button
+        shortcutHelpView.stringValue = text
+        shortcutHelpView.sizeToFitHelp()
+
+        let margin: CGFloat = 6
+        let edgeInset: CGFloat = 8
+        let helpSize = shortcutHelpView.frame.size
+        let x = min(
+            max(button.frame.midX - helpSize.width / 2, edgeInset),
+            bounds.maxX - helpSize.width - edgeInset
+        )
+        let preferredY = button.frame.maxY + margin
+        let fallbackY = button.frame.minY - helpSize.height - margin
+        let y = preferredY + helpSize.height <= bounds.maxY - edgeInset ? preferredY : fallbackY
+
+        shortcutHelpView.frame.origin = NSPoint(
+            x: x,
+            y: min(max(y, edgeInset), bounds.maxY - helpSize.height - edgeInset)
+        )
+        shortcutHelpView.isHidden = false
+    }
+
+    private func hideShortcutHelp(for button: SolidActionButton? = nil) {
+        guard button == nil || shortcutHelpOwner === button else { return }
+        shortcutHelpOwner = nil
+        shortcutHelpView.isHidden = true
     }
 
     private func floatingBarSize(buttonCount: Int, axis: FloatingBarAxis) -> NSSize {
@@ -1650,6 +1714,58 @@ final class FloatingToolbarBackgroundView: NSView {
     }
 }
 
+final class OverlayShortcutHelpView: NSView {
+    var stringValue: String {
+        get { label.stringValue }
+        set {
+            label.stringValue = newValue
+            needsLayout = true
+            needsDisplay = true
+        }
+    }
+
+    private let label = NSTextField(labelWithString: "")
+    private static let horizontalPadding: CGFloat = 8
+    private static let verticalPadding: CGFloat = 5
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        label.textColor = .labelColor
+        label.lineBreakMode = .byClipping
+        addSubview(label)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func sizeToFitHelp() {
+        let labelSize = label.intrinsicContentSize
+        frame.size = NSSize(
+            width: ceil(labelSize.width) + Self.horizontalPadding * 2,
+            height: ceil(labelSize.height) + Self.verticalPadding * 2
+        )
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        label.frame = bounds.insetBy(dx: Self.horizontalPadding, dy: Self.verticalPadding)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let background = NSColor.windowBackgroundColor.withAlphaComponent(0.96)
+        background.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
+
+        NSColor.separatorColor.withAlphaComponent(0.65).setStroke()
+        let strokeRect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        NSBezierPath(roundedRect: strokeRect, xRadius: 7, yRadius: 7).stroke()
+    }
+}
+
 final class SolidActionButton: NSButton {
     var isActive = false {
         didSet {
@@ -1664,8 +1780,12 @@ final class SolidActionButton: NSButton {
     }
 
     private let symbolImage: NSImage?
+    fileprivate let shortcutHelpText: String?
+    fileprivate var hoverChanged: ((Bool) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
 
-    init(symbolName: String?, accessibilityDescription: String) {
+    init(symbolName: String?, accessibilityDescription: String, helpText: String? = nil) {
+        shortcutHelpText = helpText
         if let symbolName {
             symbolImage = NSImage(systemSymbolName: symbolName, accessibilityDescription: accessibilityDescription)
         } else {
@@ -1673,7 +1793,9 @@ final class SolidActionButton: NSButton {
         }
         super.init(frame: .zero)
         setAccessibilityLabel(accessibilityDescription)
-        toolTip = accessibilityDescription
+        let helpText = helpText ?? accessibilityDescription
+        setAccessibilityHelp(helpText)
+        toolTip = helpText
         configure()
     }
 
@@ -1685,6 +1807,32 @@ final class SolidActionButton: NSButton {
         didSet {
             needsDisplay = true
         }
+    }
+
+    override func updateTrackingAreas() {
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+        super.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hoverChanged?(true)
+        super.mouseEntered(with: event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hoverChanged?(false)
+        super.mouseExited(with: event)
     }
 
     private func configure() {

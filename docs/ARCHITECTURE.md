@@ -31,12 +31,13 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 - `PreferencesWindowController`: retained AppKit settings window hosting the SwiftUI `PreferencesView` so Preferences opens reliably from an accessory menu-bar app.
 - `GlobalShortcutManager`: registers hardcoded `Cmd-Shift-A` with Carbon `RegisterEventHotKey`; Accessibility permission is not required for this path.
 - `CaptureCoordinator`: starts sessions, captures frozen display snapshots, wires overlay output to copy/save, and owns close-on-success behavior.
+- `SaveConfirmationToastController`: shows the app-owned transient save confirmation with filename and Finder reveal action.
 - `ScreenCaptureKitScreenshotService`: captures full-display snapshots and validates ScreenCaptureKit region capture.
 - `RegionCaptureOverlayController`: owns AppKit overlay windows, frozen snapshot rendering, selection, annotation toolbar, keyboard handling, permission/save errors, and image export preparation.
 - `RegionSelectionState`: stores selected-region state, frozen-snapshot crop, vector annotations, drafts, undo, and image-space geometry.
 - `ClipboardService`: writes PNG data to `NSPasteboard`.
 - `SaveService`: writes PNG data to the configured local save folder.
-- `PreferencesStore`: stores save folder, default annotation color, and default stroke width.
+- `PreferencesStore`: stores save folder, default annotation color, default stroke width, and whether save confirmations are shown.
 
 ## Current Architecture
 
@@ -148,6 +149,7 @@ Copy and Save are explicit separate actions.
 
 - `Copy` writes final PNG data to `NSPasteboard` and closes on success.
 - `Save` writes final PNG data to the configured folder and closes on success.
+- Successful saves can show an app-owned transient confirmation with the saved filename and a Reveal in Finder action. This is enabled by default, can be disabled in Settings, and does not use macOS notifications.
 - `Esc` closes without output.
 - `Enter` has no MVP behavior.
 - `defaultAction`, `copyAfterSave`, and `showFloatingToolbar` are not part of the current preferences model.

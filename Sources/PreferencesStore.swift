@@ -23,6 +23,10 @@ final class PreferencesStore: ObservableObject {
         didSet { defaults.set(Double(defaultAnnotationStrokeWidth), forKey: Keys.defaultAnnotationStrokeWidth) }
     }
 
+    @Published var showsSaveConfirmation: Bool {
+        didSet { defaults.set(showsSaveConfirmation, forKey: Keys.showsSaveConfirmation) }
+    }
+
     private let defaults = UserDefaults.standard
 
     init() {
@@ -37,6 +41,9 @@ final class PreferencesStore: ObservableObject {
 
         let savedStrokeWidth = defaults.object(forKey: Keys.defaultAnnotationStrokeWidth) as? Double
         defaultAnnotationStrokeWidth = savedStrokeWidth.map { CGFloat($0) } ?? 4
+
+        let savedShowsSaveConfirmation = defaults.object(forKey: Keys.showsSaveConfirmation) as? Bool
+        showsSaveConfirmation = savedShowsSaveConfirmation ?? true
     }
 }
 
@@ -44,4 +51,5 @@ private enum Keys {
     static let saveFolderPath = "saveFolderPath"
     static let defaultAnnotationColor = "defaultAnnotationColor"
     static let defaultAnnotationStrokeWidth = "defaultAnnotationStrokeWidth"
+    static let showsSaveConfirmation = "showsSaveConfirmation"
 }

@@ -43,6 +43,10 @@ struct PreferencesView: View {
                 }
 
                 folderStatusRow
+
+                LabeledContent("Save confirmation") {
+                    Toggle("Show after successful save", isOn: $preferences.showsSaveConfirmation)
+                }
             }
 
             Section("Annotations") {
