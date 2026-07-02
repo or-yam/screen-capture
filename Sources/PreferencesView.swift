@@ -108,7 +108,7 @@ struct PreferencesView: View {
         .formStyle(.grouped)
         .controlSize(.small)
         .padding(20)
-        .frame(minWidth: 560, idealWidth: 620)
+        .frame(minWidth: 560, idealWidth: 620, minHeight: 460, idealHeight: 520)
         .onAppear(perform: refreshScreenRecordingStatus)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshScreenRecordingStatus()
