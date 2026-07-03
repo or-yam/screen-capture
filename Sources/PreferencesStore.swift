@@ -27,6 +27,10 @@ final class PreferencesStore: ObservableObject {
         didSet { defaults.set(showsSaveConfirmation, forKey: Keys.showsSaveConfirmation) }
     }
 
+    @Published var showsMenuBarIcon: Bool {
+        didSet { defaults.set(showsMenuBarIcon, forKey: Keys.showsMenuBarIcon) }
+    }
+
     private let defaults = UserDefaults.standard
 
     init() {
@@ -44,6 +48,9 @@ final class PreferencesStore: ObservableObject {
 
         let savedShowsSaveConfirmation = defaults.object(forKey: Keys.showsSaveConfirmation) as? Bool
         showsSaveConfirmation = savedShowsSaveConfirmation ?? true
+
+        let savedShowsMenuBarIcon = defaults.object(forKey: Keys.showsMenuBarIcon) as? Bool
+        showsMenuBarIcon = savedShowsMenuBarIcon ?? true
     }
 }
 
@@ -52,4 +59,5 @@ private enum Keys {
     static let defaultAnnotationColor = "defaultAnnotationColor"
     static let defaultAnnotationStrokeWidth = "defaultAnnotationStrokeWidth"
     static let showsSaveConfirmation = "showsSaveConfirmation"
+    static let showsMenuBarIcon = "showsMenuBarIcon"
 }

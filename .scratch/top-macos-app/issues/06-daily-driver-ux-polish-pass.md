@@ -99,6 +99,7 @@ As of 2026-07-02, the user wants a Glaze/Raycast-inspired look and feel and spec
 - Added a Settings toggle to disable successful-save confirmations.
 - The save flow still closes the overlay on success and does not request macOS notification permission.
 - Polished status-menu commands with SF Symbol images, clearer labels, visible `Cmd-Shift-A` for Capture Region, and a recoverable alert when the configured screenshots folder is missing, not a folder, unreadable, or cannot be opened.
+- Added a Settings toggle to show or hide the app icon in the macOS menu bar.
 - Added shortcut-aware overlay tooltip/help text for Copy `Cmd-C`, Save `Cmd-S`, Undo `Cmd-Z`, and Cancel `Esc`.
 - Added a default Move tool for the post-selection toolbar. Dragging the selected region moves it, keeps annotations aligned, and renders the moving region against the frozen background instead of the stale captured crop.
 - Added selected-region border resize handles while Move is active and no annotations exist; resizing recrops from the frozen snapshot on mouse-up.

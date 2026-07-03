@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 
 @MainActor
 final class MenuBarController: NSObject {
@@ -6,6 +7,7 @@ final class MenuBarController: NSObject {
     private let captureCoordinator: CaptureCoordinator
     private let openPreferencesAction: () -> Void
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+    private var menuBarIconCancellable: AnyCancellable?
 
     init(
         preferences: PreferencesStore,
@@ -16,11 +18,23 @@ final class MenuBarController: NSObject {
         self.captureCoordinator = captureCoordinator
         self.openPreferencesAction = openPreferencesAction
         super.init()
+
+        menuBarIconCancellable = preferences.$showsMenuBarIcon
+            .dropFirst()
+            .sink { [weak self] _ in
+                Task { @MainActor in
+                    self?.applyMenuBarIconVisibility()
+                }
+            }
     }
 
     func install() {
         statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screen Capture All")
+        installMenu()
+        applyMenuBarIconVisibility()
+    }
 
+    private func installMenu() {
         let menu = NSMenu()
         let captureItem = makeMenuItem(
             title: "Capture Region",
@@ -116,6 +130,10 @@ final class MenuBarController: NSObject {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: keyEquivalent)
         item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
         return item
+    }
+
+    private func applyMenuBarIconVisibility() {
+        statusItem.isVisible = preferences.showsMenuBarIcon
     }
 
     private func showScreenshotFolderUnavailableAlert(message: String, detail: String) {

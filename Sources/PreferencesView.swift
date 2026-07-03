@@ -87,6 +87,10 @@ struct PreferencesView: View {
                     .accessibilityLabel("Command Shift A")
                 }
 
+                LabeledContent("Menu bar icon") {
+                    Toggle("Show app icon in menu bar", isOn: $preferences.showsMenuBarIcon)
+                }
+
                 LabeledContent("Screen Recording") {
                     HStack(spacing: 8) {
                         Label(

@@ -37,7 +37,7 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 - `RegionSelectionState`: stores selected-region state, frozen-snapshot crop, vector annotations, drafts, undo, and image-space geometry.
 - `ClipboardService`: writes PNG data to `NSPasteboard`.
 - `SaveService`: writes PNG data to the configured local save folder.
-- `PreferencesStore`: stores save folder, default annotation color, default stroke width, and whether save confirmations are shown.
+- `PreferencesStore`: stores save folder, default annotation color, default stroke width, whether save confirmations are shown, and whether the app's menu bar icon is shown.
 
 ## Current Architecture
 
@@ -155,6 +155,8 @@ Copy and Save are explicit separate actions.
 - `defaultAction`, `copyAfterSave`, and `showFloatingToolbar` are not part of the current preferences model.
 
 The Preferences/config entry point is handled by a retained AppKit window controller instead of SwiftUI's private `showSettingsWindow:` target-action path, which did not reliably create a settings window in the accessory app shell.
+
+The app's menu bar icon can be shown or hidden from Settings. `MenuBarController` applies that preference to the status item visibility when the setting changes.
 
 ## Legacy Prototype Modules
 
