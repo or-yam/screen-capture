@@ -165,6 +165,103 @@ final class RegionCaptureOverlayController {
     }
 }
 
+private enum RegionSelectionResizeHandle: CaseIterable {
+    case topLeft
+    case top
+    case topRight
+    case right
+    case bottomRight
+    case bottom
+    case bottomLeft
+    case left
+
+    var cursor: NSCursor {
+        switch self {
+        case .topLeft, .bottomRight:
+            return RegionResizeCursorCache.topLeftBottomRight
+        case .topRight, .bottomLeft:
+            return RegionResizeCursorCache.topRightBottomLeft
+        case .left, .right:
+            return RegionResizeCursorCache.leftRight
+        case .top, .bottom:
+            return RegionResizeCursorCache.upDown
+        }
+    }
+
+    var movesLeftEdge: Bool {
+        self == .topLeft || self == .left || self == .bottomLeft
+    }
+
+    var movesRightEdge: Bool {
+        self == .topRight || self == .right || self == .bottomRight
+    }
+
+    var movesBottomEdge: Bool {
+        self == .bottomLeft || self == .bottom || self == .bottomRight
+    }
+
+    var movesTopEdge: Bool {
+        self == .topLeft || self == .top || self == .topRight
+    }
+}
+
+private enum RegionResizeCursorCache {
+    static let leftRight = makeCursor(angle: 0)
+    static let upDown = makeCursor(angle: .pi / 2)
+    static let topLeftBottomRight = makeCursor(angle: -.pi / 4)
+    static let topRightBottomLeft = makeCursor(angle: .pi / 4)
+
+    private static func makeCursor(angle: CGFloat) -> NSCursor {
+        let size = NSSize(width: 20, height: 20)
+        let center = NSPoint(x: size.width / 2, y: size.height / 2)
+        let image = NSImage(size: size)
+        image.lockFocus()
+
+        NSGraphicsContext.current?.imageInterpolation = .high
+        let transform = NSAffineTransform()
+        transform.translateX(by: center.x, yBy: center.y)
+        transform.rotate(byRadians: angle)
+        transform.translateX(by: -center.x, yBy: -center.y)
+        transform.concat()
+
+        drawResizeCursorStroke(color: .white, lineWidth: 4.5, center: center)
+        drawResizeCursorStroke(color: .black, lineWidth: 2.2, center: center)
+
+        image.unlockFocus()
+        return NSCursor(image: image, hotSpot: center)
+    }
+
+    private static func drawResizeCursorStroke(color: NSColor, lineWidth: CGFloat, center: NSPoint) {
+        color.setStroke()
+
+        let linePath = NSBezierPath()
+        linePath.lineWidth = lineWidth
+        linePath.lineCapStyle = .round
+        linePath.lineJoinStyle = .round
+        linePath.move(to: NSPoint(x: 4, y: center.y))
+        linePath.line(to: NSPoint(x: 16, y: center.y))
+        linePath.stroke()
+
+        let leftHead = NSBezierPath()
+        leftHead.lineWidth = lineWidth
+        leftHead.lineCapStyle = .round
+        leftHead.lineJoinStyle = .round
+        leftHead.move(to: NSPoint(x: 7.5, y: center.y + 3.5))
+        leftHead.line(to: NSPoint(x: 4, y: center.y))
+        leftHead.line(to: NSPoint(x: 7.5, y: center.y - 3.5))
+        leftHead.stroke()
+
+        let rightHead = NSBezierPath()
+        rightHead.lineWidth = lineWidth
+        rightHead.lineCapStyle = .round
+        rightHead.lineJoinStyle = .round
+        rightHead.move(to: NSPoint(x: 12.5, y: center.y + 3.5))
+        rightHead.line(to: NSPoint(x: 16, y: center.y))
+        rightHead.line(to: NSPoint(x: 12.5, y: center.y - 3.5))
+        rightHead.stroke()
+    }
+}
+
 @MainActor
 final class RegionSelectionState {
     private(set) var snapshots: [DisplaySnapshot]
@@ -190,6 +287,10 @@ final class RegionSelectionState {
 
         guard let anchorPoint, let currentPoint else { return nil }
         return Self.normalizedRect(from: anchorPoint, to: currentPoint)
+    }
+
+    var hasCommittedOrDraftAnnotations: Bool {
+        !annotations.isEmpty || draftAnnotation != nil
     }
 
     private static func normalizedRect(from startPoint: NSPoint, to endPoint: NSPoint) -> NSRect {
@@ -232,6 +333,44 @@ final class RegionSelectionState {
         annotations = []
         draftAnnotation = nil
         annotationDragAnchorInImageSpace = nil
+    }
+
+    func moveAnchoredSelection(from initialRect: NSRect, by delta: NSSize) {
+        guard isSelectionAnchored else { return }
+
+        let proposedRect = initialRect.offsetBy(dx: delta.width, dy: delta.height)
+        setAnchoredSelectionRect(constrainedRect(proposedRect.standardized))
+    }
+
+    fileprivate func resizeAnchoredSelection(from initialRect: NSRect, dragging handle: RegionSelectionResizeHandle, to point: NSPoint) {
+        guard isSelectionAnchored else { return }
+
+        let bounds = snapshotBounds ?? initialRect
+        let minSelectionSize: CGFloat = 12
+        var minX = initialRect.minX
+        var maxX = initialRect.maxX
+        var minY = initialRect.minY
+        var maxY = initialRect.maxY
+
+        if handle.movesLeftEdge {
+            minX = Self.clamp(point.x, min: bounds.minX, max: maxX - minSelectionSize)
+        }
+        if handle.movesRightEdge {
+            maxX = Self.clamp(point.x, min: minX + minSelectionSize, max: bounds.maxX)
+        }
+        if handle.movesBottomEdge {
+            minY = Self.clamp(point.y, min: bounds.minY, max: maxY - minSelectionSize)
+        }
+        if handle.movesTopEdge {
+            maxY = Self.clamp(point.y, min: minY + minSelectionSize, max: bounds.maxY)
+        }
+
+        setAnchoredSelectionRect(NSRect(
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY
+        ))
     }
 
     func setCapturedImageFromFrozenSnapshots(for rect: CGRect) throws {
@@ -387,6 +526,42 @@ final class RegionSelectionState {
         annotations = []
         draftAnnotation = nil
         annotationDragAnchorInImageSpace = nil
+    }
+
+    private func setAnchoredSelectionRect(_ rect: NSRect) {
+        let rect = rect.standardized
+        anchorPoint = rect.origin
+        currentPoint = NSPoint(x: rect.maxX, y: rect.maxY)
+        canonicalSelectionRect = rect
+        isSelectionAnchored = true
+    }
+
+    private func constrainedRect(_ rect: NSRect) -> NSRect {
+        guard let snapshotBounds else { return rect }
+
+        return NSRect(
+            x: Self.clamp(rect.minX, min: snapshotBounds.minX, max: snapshotBounds.maxX - rect.width),
+            y: Self.clamp(rect.minY, min: snapshotBounds.minY, max: snapshotBounds.maxY - rect.height),
+            width: rect.width,
+            height: rect.height
+        )
+    }
+
+    private var snapshotBounds: NSRect? {
+        var result: NSRect?
+        for snapshot in snapshots {
+            let frame = snapshot.display.frameInAppKitScreenSpace
+            result = result.map { $0.union(frame) } ?? frame
+        }
+        return result
+    }
+
+    private static func clamp(_ value: CGFloat, min minValue: CGFloat, max maxValue: CGFloat) -> CGFloat {
+        guard maxValue >= minValue else {
+            return minValue
+        }
+
+        return min(max(value, minValue), maxValue)
     }
 
     private static func cropFrozenSnapshots(_ snapshots: [DisplaySnapshot], to rect: CGRect) throws -> CGImage {
@@ -566,6 +741,7 @@ final class RegionCaptureOverlayView: NSView {
     private let annotationToolbarBackground = FloatingToolbarBackgroundView()
     private let actionBarBackground = FloatingToolbarBackgroundView()
     private let shortcutHelpView = OverlayShortcutHelpView()
+    private let moveButton = SolidActionButton(symbolName: "hand.raised", accessibilityDescription: "Move")
     private let arrowButton = SolidActionButton(symbolName: "arrow.up.right", accessibilityDescription: "Arrow")
     private let textButton = SolidActionButton(symbolName: "textformat", accessibilityDescription: "Text")
     private let rectangleButton = SolidActionButton(symbolName: "rectangle", accessibilityDescription: "Rectangle")
@@ -594,6 +770,13 @@ final class RegionCaptureOverlayView: NSView {
         helpText: "Cancel (Esc)"
     )
     private var activeAnnotationTool: OverlayAnnotationTool?
+    private var isMoveToolActive = true
+    private var selectionMoveStartPoint: NSPoint?
+    private var selectionMoveStartRect: NSRect?
+    private var selectionResizeHandle: RegionSelectionResizeHandle?
+    private var selectionResizeStartRect: NSRect?
+    private var pendingReselectionStartPoint: NSPoint?
+    private var isReselectingRegion = false
     private var selectedColor: NSColor
     private var selectedStrokeIndex: Int
     private var colorPopover: NSPopover?
@@ -614,6 +797,8 @@ final class RegionCaptureOverlayView: NSView {
     private static let toolbarButtonSize = NSSize(width: 30, height: 30)
     private static let toolbarPadding: CGFloat = 5
     private static let toolbarGap: CGFloat = 4
+    private static let resizeHandleSize = NSSize(width: 8, height: 8)
+    private static let resizeHandleHitOutset: CGFloat = 6
 
     init(
         frame frameRect: NSRect,
@@ -673,9 +858,17 @@ final class RegionCaptureOverlayView: NSView {
 
         let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
         if !localSelectionRect.isEmpty {
-            addCursorRect(localSelectionRect, cursor: .arrow)
+            addCursorRect(localSelectionRect, cursor: isMoveToolActive ? .openHand : .arrow)
+        }
+        if canResizeRegion {
+            for handle in RegionSelectionResizeHandle.allCases {
+                addCursorRect(resizeHandleHitRect(for: handle, in: localSelectionRect), cursor: handle.cursor)
+            }
         }
 
+        if !moveButton.isHidden {
+            addCursorRect(moveButton.frame, cursor: .arrow)
+        }
         if !copyButton.isHidden {
             addCursorRect(copyButton.frame, cursor: .arrow)
         }
@@ -719,6 +912,10 @@ final class RegionCaptureOverlayView: NSView {
                 commitActiveTextField()
             }
         }
+        if let handle = resizeHandle(at: convert(event.locationInWindow, from: nil)) {
+            beginSelectionResize(handle: handle)
+            return
+        }
         if let activeAnnotationTool, let imagePoint = imagePointForAnnotationEvent(event) {
             if activeAnnotationTool == .text {
                 beginTextAnnotation(event: event)
@@ -731,6 +928,15 @@ final class RegionCaptureOverlayView: NSView {
                 lineWidth: selectedStrokeWidth
             )
             refresh()
+            return
+        }
+        if selectionState.capturedImage != nil, isMoveToolActive {
+            if selectionContains(point) {
+                beginSelectionMove(at: point)
+            } else if canReselectRegion {
+                pendingReselectionStartPoint = point
+                isReselectingRegion = false
+            }
             return
         }
         if selectionState.capturedImage != nil {
@@ -747,6 +953,18 @@ final class RegionCaptureOverlayView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if selectionResizeHandle != nil {
+            updateSelectionResize(to: screenPoint(for: event))
+            return
+        }
+        if selectionMoveStartPoint != nil {
+            updateSelectionMove(to: screenPoint(for: event))
+            return
+        }
+        if pendingReselectionStartPoint != nil {
+            updatePendingReselection(to: screenPoint(for: event))
+            return
+        }
         if activeAnnotationTool != nil, activeAnnotationTool != .text, let imagePoint = imagePointForAnnotationEvent(event) {
             selectionState.updateAnnotation(to: imagePoint)
             refresh()
@@ -761,6 +979,18 @@ final class RegionCaptureOverlayView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        if selectionResizeHandle != nil {
+            finishSelectionResize()
+            return
+        }
+        if selectionMoveStartPoint != nil {
+            finishSelectionMove()
+            return
+        }
+        if pendingReselectionStartPoint != nil {
+            finishPendingReselection(at: screenPoint(for: event))
+            return
+        }
         if activeAnnotationTool != nil, activeAnnotationTool != .text, let imagePoint = imagePointForAnnotationEvent(event) {
             selectionState.updateAnnotation(to: imagePoint)
             selectionState.commitAnnotation()
@@ -817,7 +1047,7 @@ final class RegionCaptureOverlayView: NSView {
 
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: localSelectionRect).addClip()
-        if let capturedImage = selectionState.capturedImage {
+        if let capturedImage = selectionState.capturedImage, selectionMoveStartPoint == nil, selectionResizeHandle == nil {
             NSImage(cgImage: capturedImage, size: localSelectionRect.size).draw(in: localSelectionRect)
         } else if drewFrozenBackground {
             drawFrozenSnapshots(in: localSelectionRect)
@@ -838,6 +1068,10 @@ final class RegionCaptureOverlayView: NSView {
         let accentPath = NSBezierPath(rect: localSelectionRect.insetBy(dx: 1, dy: 1))
         accentPath.lineWidth = 1
         accentPath.stroke()
+
+        if canResizeRegion {
+            drawResizeHandles(in: localSelectionRect)
+        }
     }
 
     func refreshState() {
@@ -866,6 +1100,11 @@ final class RegionCaptureOverlayView: NSView {
         addSubview(annotationToolbarBackground)
         actionBarBackground.isHidden = true
         addSubview(actionBarBackground)
+
+        moveButton.target = self
+        moveButton.action = #selector(moveButtonPressed)
+        moveButton.isHidden = true
+        addSubview(moveButton)
 
         arrowButton.target = self
         arrowButton.action = #selector(arrowButtonPressed)
@@ -933,6 +1172,7 @@ final class RegionCaptureOverlayView: NSView {
             selectionState.capturedImage != nil
         else {
             activeAnnotationTool = nil
+            isMoveToolActive = true
             colorPopover?.close()
             strokePopover?.close()
             hideFloatingControls()
@@ -942,12 +1182,14 @@ final class RegionCaptureOverlayView: NSView {
         let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
         guard !localSelectionRect.isEmpty else {
             activeAnnotationTool = nil
+            isMoveToolActive = true
             colorPopover?.close()
             strokePopover?.close()
             hideFloatingControls()
             return
         }
 
+        moveButton.isActive = isMoveToolActive && activeAnnotationTool == nil
         drawButton.isActive = activeAnnotationTool == .draw
         highlightButton.isActive = activeAnnotationTool == .highlight
         arrowButton.isActive = activeAnnotationTool == .arrow
@@ -955,10 +1197,24 @@ final class RegionCaptureOverlayView: NSView {
         rectangleButton.isActive = activeAnnotationTool == .rectangle
         colorButton.swatchColor = selectedColor
 
-        let annotationButtons = [drawButton, highlightButton, arrowButton, textButton, rectangleButton, colorButton, strokeButton, undoButton]
+        let annotationButtons = [moveButton, drawButton, highlightButton, arrowButton, textButton, rectangleButton, colorButton, strokeButton, undoButton]
         let actionButtons = [copyButton, saveButton, closeButton]
         let toolbarSize = floatingBarSize(buttonCount: annotationButtons.count, axis: .vertical)
         let actionBarSize = floatingBarSize(buttonCount: actionButtons.count, axis: .horizontal)
+        annotationToolbarBackground.configure(
+            axis: .vertical,
+            buttonCount: annotationButtons.count,
+            buttonSize: Self.toolbarButtonSize,
+            padding: Self.toolbarPadding,
+            gap: Self.toolbarGap
+        )
+        actionBarBackground.configure(
+            axis: .horizontal,
+            buttonCount: actionButtons.count,
+            buttonSize: Self.toolbarButtonSize,
+            padding: Self.toolbarPadding,
+            gap: Self.toolbarGap
+        )
         annotationToolbarBackground.frame = annotationToolbarFrame(for: toolbarSize, beside: localSelectionRect)
         actionBarBackground.frame = actionBarFrame(for: actionBarSize, beside: localSelectionRect)
         layout(buttons: annotationButtons, in: annotationToolbarBackground.frame, axis: .vertical)
@@ -969,7 +1225,7 @@ final class RegionCaptureOverlayView: NSView {
         actionButtons.forEach { $0.isHidden = false }
     }
 
-    private enum FloatingBarAxis {
+    fileprivate enum FloatingBarAxis {
         case horizontal
         case vertical
     }
@@ -978,7 +1234,7 @@ final class RegionCaptureOverlayView: NSView {
         annotationToolbarBackground.isHidden = true
         actionBarBackground.isHidden = true
         hideShortcutHelp()
-        [arrowButton, textButton, rectangleButton, drawButton, highlightButton, colorButton, strokeButton, undoButton, copyButton, saveButton, closeButton].forEach {
+        [moveButton, arrowButton, textButton, rectangleButton, drawButton, highlightButton, colorButton, strokeButton, undoButton, copyButton, saveButton, closeButton].forEach {
             $0.isHidden = true
         }
     }
@@ -1045,32 +1301,105 @@ final class RegionCaptureOverlayView: NSView {
 
     private func annotationToolbarFrame(for toolbarSize: NSSize, beside selectionRect: NSRect) -> NSRect {
         let margin: CGFloat = 8
-        let outsideX = selectionRect.maxX + margin
-        let insideX = selectionRect.maxX - toolbarSize.width - margin
-        let preferredX = outsideX + toolbarSize.width <= bounds.maxX - margin ? outsideX : insideX
-        let preferredY = selectionRect.maxY - toolbarSize.height
-
-        return NSRect(
-            x: min(max(preferredX, margin), bounds.maxX - toolbarSize.width - margin),
-            y: min(max(preferredY, margin), bounds.maxY - toolbarSize.height - margin),
+        let preferredY = clamp(
+            selectionRect.maxY - toolbarSize.height,
+            min: margin,
+            max: bounds.maxY - toolbarSize.height - margin
+        )
+        let rightFrame = NSRect(
+            x: selectionRect.maxX + margin,
+            y: preferredY,
             width: toolbarSize.width,
             height: toolbarSize.height
         )
+        if bounds.insetBy(dx: margin, dy: margin).contains(rightFrame) {
+            return rightFrame
+        }
+
+        let leftFrame = NSRect(
+            x: selectionRect.minX - toolbarSize.width - margin,
+            y: preferredY,
+            width: toolbarSize.width,
+            height: toolbarSize.height
+        )
+        if bounds.insetBy(dx: margin, dy: margin).contains(leftFrame) {
+            return leftFrame
+        }
+
+        let insideRightFrame = NSRect(
+            x: selectionRect.maxX - toolbarSize.width - margin,
+            y: preferredY,
+            width: toolbarSize.width,
+            height: toolbarSize.height
+        )
+        let insideLeftFrame = NSRect(
+            x: selectionRect.minX + margin,
+            y: preferredY,
+            width: toolbarSize.width,
+            height: toolbarSize.height
+        )
+        let fallbackFrame = selectionRect.midX < bounds.midX ? insideRightFrame : insideLeftFrame
+        return clampedFrame(fallbackFrame, margin: margin)
     }
 
     private func actionBarFrame(for actionBarSize: NSSize, beside selectionRect: NSRect) -> NSRect {
         let margin: CGFloat = 8
-        let preferredX = selectionRect.maxX - actionBarSize.width
-        let outsideY = selectionRect.minY - actionBarSize.height - margin
-        let insideY = selectionRect.minY + margin
-        let preferredY = outsideY >= margin ? outsideY : insideY
-
-        return NSRect(
-            x: min(max(preferredX, margin), bounds.maxX - actionBarSize.width - margin),
-            y: min(max(preferredY, margin), bounds.maxY - actionBarSize.height - margin),
+        let preferredX = clamp(
+            selectionRect.maxX - actionBarSize.width,
+            min: margin,
+            max: bounds.maxX - actionBarSize.width - margin
+        )
+        let belowFrame = NSRect(
+            x: preferredX,
+            y: selectionRect.minY - actionBarSize.height - margin,
             width: actionBarSize.width,
             height: actionBarSize.height
         )
+        if bounds.insetBy(dx: margin, dy: margin).contains(belowFrame) {
+            return belowFrame
+        }
+
+        let aboveFrame = NSRect(
+            x: preferredX,
+            y: selectionRect.maxY + margin,
+            width: actionBarSize.width,
+            height: actionBarSize.height
+        )
+        if bounds.insetBy(dx: margin, dy: margin).contains(aboveFrame) {
+            return aboveFrame
+        }
+
+        let insideBottomFrame = NSRect(
+            x: preferredX,
+            y: selectionRect.minY + margin,
+            width: actionBarSize.width,
+            height: actionBarSize.height
+        )
+        let insideTopFrame = NSRect(
+            x: preferredX,
+            y: selectionRect.maxY - actionBarSize.height - margin,
+            width: actionBarSize.width,
+            height: actionBarSize.height
+        )
+        let fallbackFrame = selectionRect.midY < bounds.midY ? insideTopFrame : insideBottomFrame
+        return clampedFrame(fallbackFrame, margin: margin)
+    }
+
+    private func clampedFrame(_ frame: NSRect, margin: CGFloat) -> NSRect {
+        NSRect(
+            x: clamp(frame.minX, min: margin, max: bounds.maxX - frame.width - margin),
+            y: clamp(frame.minY, min: margin, max: bounds.maxY - frame.height - margin),
+            width: frame.width,
+            height: frame.height
+        )
+    }
+
+    private func clamp(_ value: CGFloat, min minValue: CGFloat, max maxValue: CGFloat) -> CGFloat {
+        guard maxValue >= minValue else {
+            return minValue
+        }
+
+        return min(max(value, minValue), maxValue)
     }
 
     private func layout(buttons: [SolidActionButton], in barFrame: NSRect, axis: FloatingBarAxis) {
@@ -1096,6 +1425,16 @@ final class RegionCaptureOverlayView: NSView {
                 )
             }
         }
+    }
+
+    @objc private func moveButtonPressed() {
+        commitActiveTextField()
+        activeAnnotationTool = nil
+        isMoveToolActive = true
+        colorPopover?.close()
+        strokePopover?.close()
+        NSLog("RegionCapture: move tool selected.")
+        refresh()
     }
 
     @objc private func arrowButtonPressed() {
@@ -1169,7 +1508,13 @@ final class RegionCaptureOverlayView: NSView {
     }
 
     private func toggleAnnotationTool(_ tool: OverlayAnnotationTool) {
-        activeAnnotationTool = activeAnnotationTool == tool ? nil : tool
+        if activeAnnotationTool == tool {
+            activeAnnotationTool = nil
+            isMoveToolActive = true
+        } else {
+            activeAnnotationTool = tool
+            isMoveToolActive = false
+        }
         NSLog("RegionCapture: annotation tool \(String(describing: activeAnnotationTool)) selected.")
         refresh()
     }
@@ -1335,6 +1680,197 @@ final class RegionCaptureOverlayView: NSView {
     private func selectionContains(_ point: NSPoint) -> Bool {
         guard let selectionRect = selectionState.selectionRect else { return false }
         return selectionRect.contains(point)
+    }
+
+    private var canResizeRegion: Bool {
+        selectionState.capturedImage != nil
+            && isMoveToolActive
+            && activeAnnotationTool == nil
+            && activeTextField == nil
+            && !selectionState.hasCommittedOrDraftAnnotations
+    }
+
+    private var canReselectRegion: Bool {
+        selectionState.capturedImage != nil && !selectionState.hasCommittedOrDraftAnnotations
+    }
+
+    private func resizeHandle(at localPoint: NSPoint) -> RegionSelectionResizeHandle? {
+        guard
+            canResizeRegion,
+            let selectionRect = selectionState.selectionRect
+        else {
+            return nil
+        }
+
+        let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
+        guard !localSelectionRect.isEmpty else { return nil }
+
+        return RegionSelectionResizeHandle.allCases.first { handle in
+            resizeHandleHitRect(for: handle, in: localSelectionRect).contains(localPoint)
+        }
+    }
+
+    private func beginSelectionResize(handle: RegionSelectionResizeHandle) {
+        guard let selectionRect = selectionState.selectionRect else { return }
+        selectionResizeHandle = handle
+        selectionResizeStartRect = selectionRect
+        handle.cursor.set()
+    }
+
+    private func updateSelectionResize(to point: NSPoint) {
+        guard
+            let selectionResizeHandle,
+            let selectionResizeStartRect
+        else {
+            return
+        }
+
+        selectionState.resizeAnchoredSelection(
+            from: selectionResizeStartRect,
+            dragging: selectionResizeHandle,
+            to: point
+        )
+        selectionResizeHandle.cursor.set()
+        refresh()
+    }
+
+    private func finishSelectionResize() {
+        let finishedHandle = selectionResizeHandle
+        selectionResizeHandle = nil
+        selectionResizeStartRect = nil
+
+        guard let selectionRect = selectionState.selectionRect else {
+            refresh()
+            return
+        }
+
+        NSLog("RegionCapture: selection resized with \(String(describing: finishedHandle)) to \(selectionRect).")
+        selectionCompleted(selectionRect)
+    }
+
+    private func beginSelectionMove(at point: NSPoint) {
+        guard let selectionRect = selectionState.selectionRect else { return }
+        selectionMoveStartPoint = point
+        selectionMoveStartRect = selectionRect
+        NSCursor.closedHand.set()
+    }
+
+    private func updateSelectionMove(to point: NSPoint) {
+        guard
+            let selectionMoveStartPoint,
+            let selectionMoveStartRect
+        else {
+            return
+        }
+
+        selectionState.moveAnchoredSelection(
+            from: selectionMoveStartRect,
+            by: NSSize(
+                width: point.x - selectionMoveStartPoint.x,
+                height: point.y - selectionMoveStartPoint.y
+            )
+        )
+        NSCursor.closedHand.set()
+        refresh()
+    }
+
+    private func finishSelectionMove() {
+        selectionMoveStartPoint = nil
+        selectionMoveStartRect = nil
+        NSCursor.openHand.set()
+
+        guard let selectionRect = selectionState.selectionRect else {
+            refresh()
+            return
+        }
+
+        NSLog("RegionCapture: selection moved to \(selectionRect).")
+        selectionCompleted(selectionRect)
+    }
+
+    private func updatePendingReselection(to point: NSPoint) {
+        guard let pendingReselectionStartPoint else { return }
+
+        if !isReselectingRegion {
+            guard hypot(point.x - pendingReselectionStartPoint.x, point.y - pendingReselectionStartPoint.y) >= 1 else {
+                return
+            }
+            isReselectingRegion = true
+            selectionState.beginSelection(at: pendingReselectionStartPoint)
+        }
+
+        selectionState.updateSelection(to: point)
+        refresh()
+    }
+
+    private func finishPendingReselection(at point: NSPoint) {
+        defer {
+            pendingReselectionStartPoint = nil
+            isReselectingRegion = false
+        }
+
+        guard isReselectingRegion else { return }
+
+        selectionState.anchorSelection(at: point)
+        refresh()
+
+        if let selectionRect = selectionState.selectionRect, selectionRect.width >= 1, selectionRect.height >= 1 {
+            NSLog("RegionCapture: selection reselected: \(selectionRect).")
+            selectionCompleted(selectionRect)
+        } else {
+            NSLog("RegionCapture: ignored empty reselection.")
+        }
+    }
+
+    private func drawResizeHandles(in selectionRect: NSRect) {
+        for handle in RegionSelectionResizeHandle.allCases {
+            let frame = resizeHandleFrame(for: handle, in: selectionRect)
+            NSColor.windowBackgroundColor.setFill()
+            NSBezierPath(rect: frame).fill()
+
+            NSColor.systemBlue.setStroke()
+            let borderPath = NSBezierPath(rect: frame.insetBy(dx: 0.5, dy: 0.5))
+            borderPath.lineWidth = 1
+            borderPath.stroke()
+        }
+    }
+
+    private func resizeHandleHitRect(for handle: RegionSelectionResizeHandle, in selectionRect: NSRect) -> NSRect {
+        resizeHandleFrame(for: handle, in: selectionRect).insetBy(
+            dx: -Self.resizeHandleHitOutset,
+            dy: -Self.resizeHandleHitOutset
+        )
+    }
+
+    private func resizeHandleFrame(for handle: RegionSelectionResizeHandle, in selectionRect: NSRect) -> NSRect {
+        let center = resizeHandleCenter(for: handle, in: selectionRect)
+        return NSRect(
+            x: center.x - Self.resizeHandleSize.width / 2,
+            y: center.y - Self.resizeHandleSize.height / 2,
+            width: Self.resizeHandleSize.width,
+            height: Self.resizeHandleSize.height
+        )
+    }
+
+    private func resizeHandleCenter(for handle: RegionSelectionResizeHandle, in selectionRect: NSRect) -> NSPoint {
+        switch handle {
+        case .topLeft:
+            return NSPoint(x: selectionRect.minX, y: selectionRect.maxY)
+        case .top:
+            return NSPoint(x: selectionRect.midX, y: selectionRect.maxY)
+        case .topRight:
+            return NSPoint(x: selectionRect.maxX, y: selectionRect.maxY)
+        case .right:
+            return NSPoint(x: selectionRect.maxX, y: selectionRect.midY)
+        case .bottomRight:
+            return NSPoint(x: selectionRect.maxX, y: selectionRect.minY)
+        case .bottom:
+            return NSPoint(x: selectionRect.midX, y: selectionRect.minY)
+        case .bottomLeft:
+            return NSPoint(x: selectionRect.minX, y: selectionRect.minY)
+        case .left:
+            return NSPoint(x: selectionRect.minX, y: selectionRect.midY)
+        }
     }
 
     private func imagePointForAnnotationEvent(_ event: NSEvent) -> CGPoint? {
@@ -1698,10 +2234,15 @@ private extension NSColor {
 }
 
 final class FloatingToolbarBackgroundView: NSView {
+    private var axis: RegionCaptureOverlayView.FloatingBarAxis = .horizontal
+    private var buttonCount = 0
+    private var buttonSize = NSSize(width: 30, height: 30)
+    private var padding: CGFloat = 5
+    private var gap: CGFloat = 4
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.78).cgColor
         layer?.cornerRadius = 10
         layer?.shadowColor = NSColor.black.cgColor
         layer?.shadowOpacity = 0.22
@@ -1711,6 +2252,49 @@ final class FloatingToolbarBackgroundView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    fileprivate func configure(
+        axis: RegionCaptureOverlayView.FloatingBarAxis,
+        buttonCount: Int,
+        buttonSize: NSSize,
+        padding: CGFloat,
+        gap: CGFloat
+    ) {
+        self.axis = axis
+        self.buttonCount = buttonCount
+        self.buttonSize = buttonSize
+        self.padding = padding
+        self.gap = gap
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let backgroundPath = NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10)
+        NSColor.windowBackgroundColor.setFill()
+        backgroundPath.fill()
+
+        NSColor.separatorColor.setStroke()
+        let strokeRect = bounds.insetBy(dx: 0.5, dy: 0.5)
+        NSBezierPath(roundedRect: strokeRect, xRadius: 10, yRadius: 10).stroke()
+
+        guard buttonCount > 1 else { return }
+
+        for index in 1..<buttonCount {
+            let dividerPath = NSBezierPath()
+            switch axis {
+            case .horizontal:
+                let x = padding + CGFloat(index) * buttonSize.width + CGFloat(index - 1) * gap + gap / 2
+                dividerPath.move(to: NSPoint(x: x, y: padding + 4))
+                dividerPath.line(to: NSPoint(x: x, y: bounds.height - padding - 4))
+            case .vertical:
+                let y = bounds.height - padding - CGFloat(index) * buttonSize.height - CGFloat(index - 1) * gap - gap / 2
+                dividerPath.move(to: NSPoint(x: padding + 4, y: y))
+                dividerPath.line(to: NSPoint(x: bounds.width - padding - 4, y: y))
+            }
+            dividerPath.lineWidth = 1
+            dividerPath.stroke()
+        }
     }
 }
 
@@ -1756,11 +2340,10 @@ final class OverlayShortcutHelpView: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        let background = NSColor.windowBackgroundColor.withAlphaComponent(0.96)
-        background.setFill()
+        NSColor.windowBackgroundColor.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 7, yRadius: 7).fill()
 
-        NSColor.separatorColor.withAlphaComponent(0.65).setStroke()
+        NSColor.separatorColor.setStroke()
         let strokeRect = bounds.insetBy(dx: 0.5, dy: 0.5)
         NSBezierPath(roundedRect: strokeRect, xRadius: 7, yRadius: 7).stroke()
     }
@@ -1852,8 +2435,8 @@ final class SolidActionButton: NSButton {
         let buttonRect = bounds.insetBy(dx: 1, dy: 1)
         if isActive || isHighlighted {
             let fill = isActive
-                ? NSColor.controlAccentColor.withAlphaComponent(0.18)
-                : NSColor.controlColor.withAlphaComponent(0.35)
+                ? NSColor.selectedControlColor
+                : NSColor.controlColor
             fill.setFill()
             NSBezierPath(roundedRect: buttonRect, xRadius: 7, yRadius: 7).fill()
         }

@@ -24,6 +24,11 @@ Use this checklist before treating the current native region-capture flow as hea
 - Drag a valid region on a single display.
 - Drag a valid region on each attached display.
 - Drag a valid region in a negative-coordinate display arrangement if available.
+- After selecting a region, confirm Move is the default active tool and the selected region shows an open-hand cursor.
+- With Move active, drag the selected region and confirm the selected area shows the frozen background instead of the previous captured crop while existing annotations stay aligned.
+- With Move active and no annotations, drag each selected-region border/corner handle and confirm the selected region resizes from the frozen background.
+- Before adding annotations, drag outside the selected region and confirm it reselects a new region.
+- After adding an annotation, confirm border resize handles are hidden and drag outside the selected region keeps reselection disabled.
 - Confirm the selected-region output dimensions match the expected Retina/backing scale.
 - Confirm `Esc` closes all overlay UI without copying or saving.
 - Create Rectangle, Arrow, Draw, Highlight, and Text annotations.
@@ -55,5 +60,4 @@ Use this checklist before treating the current native region-capture flow as hea
 
 ## Follow-Up Improvements
 
-- After the user creates the initial capture region, the selected region could become draggable before final output. This is not currently treated as an MVP blocker.
 - A top-tier macOS app pass is now tracked separately under `.scratch/top-macos-app/` and `tech-designs/top-macos-app-quality-roadmap.md`, covering UI/UX polish, distribution, tests, and release readiness.
