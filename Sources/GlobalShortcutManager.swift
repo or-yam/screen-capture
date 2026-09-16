@@ -22,7 +22,7 @@ final class GlobalShortcutManager {
         var hotKeyRef: EventHotKeyRef?
         let hotKeyID = EventHotKeyID(signature: fourCharacterCode("SCAP"), id: 1)
         let status = RegisterEventHotKey(
-            UInt32(kVK_ANSI_A),
+            UInt32(kVK_ANSI_S),
             UInt32(cmdKey | shiftKey),
             hotKeyID,
             GetApplicationEventTarget(),
@@ -31,13 +31,13 @@ final class GlobalShortcutManager {
         )
 
         guard status == noErr, let hotKeyRef else {
-            NSLog("ScreenCaptureAll failed to register global shortcut Cmd+Shift+A. Carbon status: \(status)")
+            NSLog("ScreenCaptureAll failed to register global shortcut Cmd+Shift+S. Carbon status: \(status)")
             stop()
             return
         }
 
         self.hotKeyRef = hotKeyRef
-        NSLog("ScreenCaptureAll registered global shortcut Cmd+Shift+A using Carbon RegisterEventHotKey; no Accessibility permission is required.")
+        NSLog("ScreenCaptureAll registered global shortcut Cmd+Shift+S using Carbon RegisterEventHotKey; no Accessibility permission is required.")
     }
 
     func stop() {

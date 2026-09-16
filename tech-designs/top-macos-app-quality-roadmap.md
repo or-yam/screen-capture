@@ -117,7 +117,7 @@ Distribution should progress from personal bundle to credible direct download:
 - Stable bundle identifier and app identity.
 - Repeatable app bundle generation.
 - Developer ID signing and notarization readiness.
-- DMG generation after ZIP release flow is clean.
+- ZIP-only release artifacts unless the distribution decision is explicitly reopened.
 - Release checklist that covers permissions, first launch, upgrades, and quarantine/Gatekeeper behavior.
 
 ### Alternatives Considered
@@ -173,7 +173,7 @@ Distribution should progress from personal bundle to credible direct download:
 
 | Question | Status | Owner | Notes |
 |----------|--------|-------|-------|
-| Minimum public-release macOS version | Open | Oryam | Runtime currently needs macOS 15.2+ for region capture path |
+| Minimum public-release macOS version | Resolved | Oryam | Target latest Tahoe-native release line: macOS 26+ |
 | Developer ID signing/notarization timing | Open | Oryam | Needed before broader direct-download release |
 | Shortcut editor scope | Open | Oryam | Listed in PRD, should follow fixed settings entry point |
 | UI automation strategy for overlay | Open | Oryam | Manual QA remains required for now |

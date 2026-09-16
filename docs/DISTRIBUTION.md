@@ -15,7 +15,7 @@ The next quality roadmap should evaluate, in order:
 
 - A reliable `.app` bundle with stable identity and permissions behavior.
 - Developer ID signing and notarization for low-friction direct download.
-- A polished DMG only after ZIP releases are working cleanly.
+- ZIP-only releases for the current distribution path.
 - Launch-at-login, permission onboarding, and settings UX only if they preserve the fast menu-bar utility model.
 - Automated tests and a documented manual QA matrix before broader release.
 
@@ -58,7 +58,7 @@ For the first downloadable release, prefer a zipped app bundle:
 ScreenCaptureAll-0.1.0.zip
 ```
 
-A DMG can be added later, but it is not the first problem to solve. An unsigned DMG still has Gatekeeper friction after download, just like an unsigned ZIP.
+Do not add a DMG for the current release path. An unsigned DMG still has Gatekeeper friction after download, just like an unsigned ZIP.
 
 ## Packaging Decision
 
@@ -88,12 +88,12 @@ Use these app metadata values:
 - `CFBundleExecutable`: `ScreenCaptureAll`
 - `CFBundlePackageType`: `APPL`
 - `CFBundleIdentifier`: stable reverse-DNS ID, for example `com.oryam.ScreenCaptureAll`
-- `LSMinimumSystemVersion`: `15.2`
+- `LSMinimumSystemVersion`: `26.0`
 - `LSUIElement`: `true`
 
 `LSUIElement=true` is appropriate because the app is a menu-bar accessory app, not a normal Dock app.
 
-`LSMinimumSystemVersion=15.2` should match the runtime requirement from `SCScreenshotManager.captureImage(in:)`.
+`LSMinimumSystemVersion=26.0` should match the Tahoe-native package target.
 
 ## Signing Levels
 
@@ -121,17 +121,7 @@ xcrun notarytool submit ScreenCaptureAll.zip --keychain-profile "notary-profile"
 xcrun stapler staple ScreenCaptureAll.app
 ```
 
-Notarized ZIP or DMG is the best public-download experience, but it is not required for personal use.
-
-## DMG Position
-
-A DMG is acceptable later for polish:
-
-```text
-ScreenCaptureAll.dmg
-```
-
-Use it when the project needs a nicer drag-to-Applications install experience. Do not treat DMG creation as a substitute for signing or notarization.
+Notarized ZIP is the best public-download experience under the current ZIP-only decision, but it is not required for personal use.
 
 ## Permissions Notes
 
@@ -168,5 +158,4 @@ MARKETING_VERSION=0.2.0 BUILD_NUMBER=2 Scripts/package_app.sh
 Next packaging improvements, in order:
 
 1. Attach `ScreenCaptureAll-<version>.zip` to GitHub Releases.
-2. Add DMG generation only after ZIP releases feel too rough.
-3. Add Developer ID signing and notarization only if the app is shared beyond personal use.
+2. Add Developer ID signing and notarization only if the app is shared beyond personal use.

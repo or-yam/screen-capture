@@ -59,7 +59,7 @@ As of 2026-07-02, the direction is approved: Glaze/Raycast-inspired, compact uti
 - It is acceptable to replace the full `ColorPicker` with swatches for the default colors used by the overlay, as long as the selected value is obvious.
 - Show save-folder validation inline. If the folder is missing or inaccessible, present a warning row and offer `Choose...`.
 - Add a Screen Recording permission status row with an `Open System Settings` action. Do not show modal alerts from settings for normal status.
-- Keep `Cmd-Shift-A` as the capture shortcut for now. Show it clearly; do not build shortcut recording yet.
+- Keep `Cmd-Shift-S` as the capture shortcut for now. Show it clearly; do not build shortcut recording yet.
 - Keep copy restrained and functional. No marketing text, no tutorial prose, no large hero/onboarding screen.
 - Manual QA must cover opening Preferences repeatedly from the status menu, changing color/stroke/folder, light and dark mode, denied Screen Recording, and a missing/inaccessible save folder.
 

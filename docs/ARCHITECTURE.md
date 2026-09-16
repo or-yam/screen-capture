@@ -20,16 +20,16 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 - Native macOS APIs wherever practical.
 - No sandboxing for MVP.
 - No App Store, notarization, auto-update, telemetry, or public release work for MVP.
-- `Package.swift` currently declares `.macOS(.v13)`.
-- Region capture requires macOS 15.2+ at runtime because it uses `SCScreenshotManager.captureImage(in:)`.
-- Tahoe-native remains the product direction, but the package manifest has not been raised to a Tahoe-specific platform spelling.
+- `Package.swift` declares `.macOS("26.0")`.
+- Region capture uses `SCScreenshotManager.captureImage(in:)`.
+- Tahoe-native is the product direction, and the package/app bundle minimums now reflect that.
 
 ## Current Components
 
 - `ScreenCaptureAllApp`: SwiftUI app entry point and accessory-app lifecycle.
 - `MenuBarController`: status item and menu actions for region capture, preferences, screenshot folder, and quit.
 - `PreferencesWindowController`: retained AppKit settings window hosting the SwiftUI `PreferencesView` so Preferences opens reliably from an accessory menu-bar app.
-- `GlobalShortcutManager`: registers hardcoded `Cmd-Shift-A` with Carbon `RegisterEventHotKey`; Accessibility permission is not required for this path.
+- `GlobalShortcutManager`: registers hardcoded `Cmd-Shift-S` with Carbon `RegisterEventHotKey`; Accessibility permission is not required for this path.
 - `CaptureCoordinator`: starts sessions, captures frozen display snapshots, wires overlay output to copy/save, and owns close-on-success behavior.
 - `SaveConfirmationToastController`: shows the app-owned transient save confirmation with filename and Finder reveal action.
 - `ScreenCaptureKitScreenshotService`: captures full-display snapshots and validates ScreenCaptureKit region capture.
@@ -51,7 +51,7 @@ Avoid account systems, upload flows, history managers, public distribution mecha
             v
 +------------------------+
 | Hotkey Manager         |
-| Cmd-Shift-A            |
+| Cmd-Shift-S            |
 +-----------+------------+
             |
             v
@@ -158,13 +158,14 @@ The Preferences/config entry point is handled by a retained AppKit window contro
 
 The app's menu bar icon can be shown or hidden from Settings. `MenuBarController` applies that preference to the status item visibility when the setting changes.
 
-## Legacy Prototype Modules
+## Removed Prototype Modules
 
-The following modules remain in the source tree as historical scaffold code and should not define new MVP work:
+The old separate editor surface and SwiftUI annotation model were removed:
 
-- `ScreenshotEditorWindowController` and `ScreenshotEditorView`: deprecated separate editor surface. The current region flow does not open it.
-- `AnnotationModel`: old SwiftUI editor annotation model with non-MVP tools such as ellipse and blur. The current overlay uses `OverlayAnnotation` in `RegionCaptureOverlayController` instead.
-- `Renderer`: older render boundary retained in source, but the current overlay flow flattens its own annotation model for copy/save.
+- `ScreenshotEditorWindowController` and `ScreenshotEditorView`.
+- `AnnotationModel`.
+
+`Renderer` remains because the current overlay flow uses it to flatten annotations into final PNG output.
 
 ## Completed MVP Slices
 
@@ -182,6 +183,4 @@ The following modules remain in the source tree as historical scaffold code and 
 
 - Movable/resizable selected region after initial drag.
 - User-configurable global shortcut.
-- Removing or archiving legacy editor scaffold code.
-- Raising the package platform spelling when the local toolchain supports the intended Tahoe target cleanly.
 - Release-grade app quality work is tracked separately in [../tech-designs/top-macos-app-quality-roadmap.md](../tech-designs/top-macos-app-quality-roadmap.md): native settings/onboarding polish, automated regression tests, signed/notarized distribution, and a broader manual QA matrix.

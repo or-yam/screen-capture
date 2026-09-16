@@ -5,7 +5,7 @@ import PackageDescription
 let package = Package(
     name: "ScreenCaptureAll",
     platforms: [
-        .macOS(.v13)
+        .macOS("26.0")
     ],
     products: [
         .executable(name: "ScreenCaptureAll", targets: ["ScreenCaptureAll"])

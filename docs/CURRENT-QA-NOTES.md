@@ -15,10 +15,10 @@ Use this checklist before treating the current native region-capture flow as hea
 
 - Launch the menu-bar app with `swift run ScreenCaptureAll`.
 - Start capture from the menu item: `Capture Region`.
-- Confirm the status menu shows `Capture Region` with `Cmd-Shift-A`, `Open Screenshots Folder`, `Preferences...`, and `Quit Screen Capture All`.
+- Confirm the status menu shows `Capture Region` with `Cmd-Shift-S`, `Open Screenshots Folder`, `Preferences...`, and `Quit Screen Capture All`.
 - Confirm Settings can hide and restore the app icon in the macOS menu bar.
 - Temporarily configure a missing or inaccessible save folder and confirm `Open Screenshots Folder` shows a recoverable alert instead of failing silently.
-- Start capture from the global shortcut: `Cmd-Shift-A`.
+- Start capture from the global shortcut: `Cmd-Shift-S`.
 - Confirm the Preferences/config menu item opens the settings UI before testing customization behavior.
 - Confirm Settings can disable and re-enable successful-save confirmations.
 - Confirm capture starts from a frozen snapshot-backed overlay, not a live desktop view.

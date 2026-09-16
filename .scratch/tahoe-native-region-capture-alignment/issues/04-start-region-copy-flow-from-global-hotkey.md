@@ -25,4 +25,4 @@ Make `GlobalShortcutManager` register a real native global shortcut that starts 
 
 ## Comments
 
-- Implemented with Carbon `RegisterEventHotKey` for hardcoded `Cmd+Shift+A`. Carbon is sufficient for this MVP path and does not require Accessibility permission. Registration and event-handler failures are logged with Carbon status codes.
+- Initially implemented with Carbon `RegisterEventHotKey` for hardcoded `Cmd+Shift+A`; the current shortcut is `Cmd+Shift+S`. Carbon is sufficient for this MVP path and does not require Accessibility permission. Registration and event-handler failures are logged with Carbon status codes.

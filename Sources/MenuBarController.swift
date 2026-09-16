@@ -39,7 +39,7 @@ final class MenuBarController: NSObject {
         let captureItem = makeMenuItem(
             title: "Capture Region",
             action: #selector(startRegionCapture),
-            keyEquivalent: "a",
+            keyEquivalent: "s",
             symbolName: "camera.viewfinder"
         )
         captureItem.keyEquivalentModifierMask = [.command, .shift]

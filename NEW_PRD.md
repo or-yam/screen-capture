@@ -598,7 +598,7 @@ Toolbar requirements:
 MVP defaults:
 
 ```text
-Capture: Cmd+Shift+A
+Capture: Cmd+Shift+S
 Copy: Cmd+C
 Save: Cmd+S
 Cancel: Esc

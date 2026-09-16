@@ -60,7 +60,7 @@ Problems with the scaffold:
 - `GlobalShortcutManager` is a stub.
 - Annotation state is unstable because `Annotation.id` returns a new `UUID()` on every access.
 - Blur/redaction, ellipse, window capture, full-screen capture, `defaultAction`, `copyAfterSave`, and `showFloatingToolbar` are scaffold leftovers, not aligned MVP requirements.
-- `Package.swift` targets macOS 13, which conflicts with the Tahoe-only decision.
+- `Package.swift` targets macOS 26, matching the Tahoe-only decision.
 - Existing docs still present prototype choices as MVP direction.
 
 Out of scope for MVP:
@@ -507,7 +507,7 @@ Rejected for MVP. A black rectangle covers the personal redaction need without i
 | Task | Estimate | Dependencies | Notes |
 |------|----------|--------------|-------|
 | Align docs to new authority | S | This design | Rewrite README/architecture, deprecate old phase doc |
-| Raise platform target to Tahoe 26 | S | Docs decision | Update package/app target once local toolchain supports it |
+| Raise platform target to Tahoe 26 | Done | Docs decision | Package/app target now requires macOS 26+ |
 | Remove stale capture modes from UI | S | Docs alignment | Region only; remove window/full-screen claims |
 | Replace `ScreencaptureService` with ScreenCaptureKit region service | M | Tahoe target | Start with `SCScreenshotManager.captureImage(in:)` |
 | Build AppKit overlay windows | L | Capture service shape | Selection UI, dimming, drag geometry |
@@ -587,7 +587,7 @@ Rollback plan:
 | Question | Status | Owner | Notes |
 |----------|--------|-------|-------|
 | Default global shortcut | Open | Oryam | Needs a personal choice that avoids Apple defaults |
-| Exact Tahoe deployment spelling in SPM/Xcode | Open | Codex | Depends on local toolchain support |
+| Exact Tahoe deployment spelling in SPM/Xcode | Resolved | Codex | SwiftPM uses `.macOS("26.0")`; the typed `.v26` constant requires a newer PackageDescription tools version and turns on Swift 6 checks in this project |
 | AppKit overlay window strategy | Open | Codex | One per display is recommended; validate with Spaces/full-screen apps |
 | Annotation move/delete/resize in MVP | Open | Oryam | Not required by current decisions; revisit after daily use |
 | Selection move/resize after mouse-up | Open | Oryam | Not blocking; immediate annotation mode is decided |

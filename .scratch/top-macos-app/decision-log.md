@@ -29,7 +29,8 @@ The v1 public-share install experience can be a GitHub Releases ZIP, unsigned or
 Implications:
 
 - The immediate distribution task should document and verify the ZIP path first.
-- Developer ID signing, notarization, and DMG creation are deferred polish, not v1 blockers.
+- Developer ID signing and notarization are deferred polish, not v1 blockers.
+- DMG creation is out of scope for the current release path; use ZIP only.
 - The release docs must be honest about Gatekeeper friction and explain the recovery path.
 - The app bundle still needs stable identity metadata because Screen Recording permission behavior depends on bundle identity.
 - QA should cover first launch from the ZIP-built app and the Screen Recording permission flow, even if the app is not notarized.

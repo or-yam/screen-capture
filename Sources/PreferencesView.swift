@@ -1,10 +1,11 @@
 import AppKit
+import Combine
 import CoreGraphics
 import SwiftUI
 
 struct PreferencesView: View {
     @ObservedObject var preferences: PreferencesStore
-    @State private var screenRecordingAllowed = false
+    @StateObject private var screenRecordingStatus = ScreenRecordingPermissionStatus()
 
     private static let annotationSwatches: [AnnotationSwatch] = [
         AnnotationSwatch(name: "Red", color: .systemRed),
@@ -81,10 +82,10 @@ struct PreferencesView: View {
                     HStack(spacing: 4) {
                         KeyCap("Cmd")
                         KeyCap("Shift")
-                        KeyCap("A")
+                        KeyCap("S")
                     }
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Command Shift A")
+                    .accessibilityLabel("Command Shift S")
                 }
 
                 LabeledContent("Menu bar icon") {
@@ -94,8 +95,8 @@ struct PreferencesView: View {
                 LabeledContent("Screen Recording") {
                     HStack(spacing: 8) {
                         Label(
-                            screenRecordingAllowed ? "Allowed" : "Not allowed",
-                            systemImage: screenRecordingAllowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                            screenRecordingStatus.isAllowed ? "Allowed" : "Not allowed",
+                            systemImage: screenRecordingStatus.isAllowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
                         )
                         .foregroundStyle(screenRecordingStatusStyle)
 
@@ -103,7 +104,7 @@ struct PreferencesView: View {
                     }
                 }
 
-                if !screenRecordingAllowed {
+                if !screenRecordingStatus.isAllowed {
                     Label(
                         "Captures fail until Screen Recording is allowed.",
                         systemImage: "exclamationmark.triangle.fill"
@@ -128,7 +129,7 @@ struct PreferencesView: View {
     }
 
     private var screenRecordingStatusStyle: AnyShapeStyle {
-        screenRecordingAllowed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange)
+        screenRecordingStatus.isAllowed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange)
     }
 
     private var folderStatusRow: some View {
@@ -189,7 +190,7 @@ struct PreferencesView: View {
     }
 
     private func refreshScreenRecordingStatus() {
-        screenRecordingAllowed = CGPreflightScreenCaptureAccess()
+        screenRecordingStatus.isAllowed = CGPreflightScreenCaptureAccess()
     }
 
     private func openScreenRecordingSettings() {
@@ -199,6 +200,11 @@ struct PreferencesView: View {
 
         NSWorkspace.shared.open(url)
     }
+}
+
+@MainActor
+private final class ScreenRecordingPermissionStatus: ObservableObject {
+    @Published var isAllowed = false
 }
 
 private struct AnnotationSwatch: Identifiable {

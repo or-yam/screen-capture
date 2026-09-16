@@ -14,7 +14,7 @@ Update packaging and release documentation so the project has a credible path fr
 ## Acceptance criteria
 
 - [ ] Document the stable app identity requirements: bundle identifier, app path, signing identity, and permission implications.
-- [ ] Define when ZIP is enough and when DMG is justified.
+- [ ] Document the ZIP-only release path and explicitly keep DMG creation out of scope.
 - [ ] Define Developer ID signing and notarization prerequisites and commands at a runbook level.
 - [ ] Include first-launch, quarantine/Gatekeeper, and Screen Recording permission checks in release QA.
 - [ ] Explicitly keep App Store, telemetry, and auto-update out of scope unless separately approved.
