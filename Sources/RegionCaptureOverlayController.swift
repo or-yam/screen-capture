@@ -8,21 +8,24 @@ final class RegionCaptureOverlayController {
     private var windows: [RegionCaptureOverlayWindow] = []
     private var selectionState = RegionSelectionState()
 
+    var captureID: String { selectionState.captureID }
+
     func start(
+        captureID: String,
         snapshots: [DisplaySnapshot],
         defaultAnnotationColor: NSColor,
         defaultAnnotationStrokeWidth: CGFloat
     ) {
-        NSLog("RegionCapture: starting overlay session.")
+        AppLogging.selection.notice("Starting overlay id=\(captureID, privacy: .public)")
         cancel()
 
         let screens = NSScreen.screens
         guard !screens.isEmpty else {
-            NSLog("RegionCapture: no screens available; aborting overlay session.")
+            AppLogging.selection.error("No screens available id=\(captureID, privacy: .public)")
             return
         }
 
-        selectionState = RegionSelectionState(snapshots: snapshots)
+        selectionState = RegionSelectionState(snapshots: snapshots, captureID: captureID)
         windows = screens.map { screen in
             let window = RegionCaptureOverlayWindow(
                 screen: screen,
@@ -44,7 +47,8 @@ final class RegionCaptureOverlayController {
     }
 
     func cancel() {
-        NSLog("RegionCapture: cancelling overlay session; closing \(windows.count) windows.")
+        AppLogging.selection.debug("Closing overlay id=\(self.captureID, privacy: .public) windows=\(self.windows.count)")
+        CaptureDiagnostics.log("overlay cancel windows=\(windows.count)", captureID: captureID)
         for window in windows {
             window.orderOut(nil)
         }
@@ -53,19 +57,19 @@ final class RegionCaptureOverlayController {
     }
 
     func cancelFromUserAction() {
-        NSLog("Region capture cancelled by user.")
+        AppLogging.selection.notice("Capture cancelled by user id=\(self.captureID, privacy: .public)")
         cancel()
     }
 
     func hideForCapture() {
-        NSLog("RegionCapture: hiding overlay windows for ScreenCaptureKit capture.")
+        AppLogging.selection.debug("Hiding overlay id=\(self.captureID, privacy: .public)")
         for window in windows {
             window.orderOut(nil)
         }
     }
 
     func showAfterCapture() {
-        NSLog("RegionCapture: restoring overlay windows after capture.")
+        AppLogging.selection.debug("Restoring overlay id=\(self.captureID, privacy: .public)")
         for window in windows {
             window.orderFrontRegardless()
         }
@@ -73,7 +77,7 @@ final class RegionCaptureOverlayController {
     }
 
     func showCaptureError(_ error: Error) {
-        NSLog("RegionCapture: capture failed: \(error.localizedDescription)")
+        AppLogging.capture.error("Showing capture error: \(error.localizedDescription, privacy: .private)")
         hideForCapture()
         NSSound.beep()
         let alert = makeAlert(for: error)
@@ -85,7 +89,7 @@ final class RegionCaptureOverlayController {
     }
 
     func showSaveError(_ error: Error) {
-        NSLog("RegionCapture: save failed: \(error.localizedDescription)")
+        AppLogging.save.error("Showing save error id=\(self.captureID, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
         hideForCapture()
         NSSound.beep()
 
@@ -137,7 +141,7 @@ final class RegionCaptureOverlayController {
         do {
             try selectionState.setCapturedImageFromFrozenSnapshots(for: rect)
             if let image = selectionState.capturedImage, let pngData = selectionState.capturedPNG {
-                NSLog("RegionCapture: selected frozen region ready, \(image.width)x\(image.height), \(pngData.count) PNG bytes.")
+                AppLogging.selection.notice("Selection ready id=\(self.captureID, privacy: .public) pixels=\(image.width)x\(image.height) bytes=\(pngData.count)")
             }
             refreshOverlays()
         } catch {
@@ -153,15 +157,13 @@ final class RegionCaptureOverlayController {
 
     private func focusPrimaryOverlay(reason: String) {
         guard let window = windows.first else {
-            NSLog("RegionCapture: no overlay window to focus for \(reason).")
+            AppLogging.selection.debug("No overlay to focus id=\(self.captureID, privacy: .public) reason=\(reason, privacy: .public)")
             return
         }
 
         window.makeKey()
         window.makeFirstResponder(window.overlayView)
-        NSLog(
-            "RegionCapture: focused primary overlay for \(reason); isKeyWindow=\(window.isKeyWindow), firstResponder=\(String(describing: window.firstResponder))."
-        )
+        AppLogging.selection.debug("Focused overlay id=\(self.captureID, privacy: .public) reason=\(reason, privacy: .public) key=\(window.isKeyWindow)")
     }
 }
 
@@ -264,6 +266,7 @@ private enum RegionResizeCursorCache {
 
 @MainActor
 final class RegionSelectionState {
+    let captureID: String
     private(set) var snapshots: [DisplaySnapshot]
     private(set) var anchorPoint: NSPoint?
     private(set) var currentPoint: NSPoint?
@@ -276,8 +279,9 @@ final class RegionSelectionState {
 
     private var annotationDragAnchorInImageSpace: CGPoint?
 
-    init(snapshots: [DisplaySnapshot] = []) {
+    init(snapshots: [DisplaySnapshot] = [], captureID: String = "none") {
         self.snapshots = snapshots
+        self.captureID = captureID
     }
 
     var selectionRect: NSRect? {
@@ -338,8 +342,24 @@ final class RegionSelectionState {
     func moveAnchoredSelection(from initialRect: NSRect, by delta: NSSize) {
         guard isSelectionAnchored else { return }
 
-        let proposedRect = initialRect.offsetBy(dx: delta.width, dy: delta.height)
-        setAnchoredSelectionRect(constrainedRect(proposedRect.standardized))
+        var proposedRect = constrainedRect(initialRect.offsetBy(dx: delta.width, dy: delta.height).standardized)
+        if let snapshot = snapshots.first(where: {
+            $0.display.frameInAppKitScreenSpace.contains(initialRect)
+                && $0.display.frameInAppKitScreenSpace.contains(proposedRect)
+        }) {
+            let frame = snapshot.display.frameInAppKitScreenSpace
+            let scaleX = CGFloat(snapshot.image.width) / frame.width
+            let scaleY = CGFloat(snapshot.image.height) / frame.height
+            // A fractional move must not expand an already aligned crop by an
+            // extra row/column each time the pointer is released.
+            proposedRect.origin = NSPoint(
+                x: Self.clamp(frame.minX + ((proposedRect.minX - frame.minX) * scaleX).rounded() / scaleX,
+                              min: frame.minX, max: frame.maxX - proposedRect.width),
+                y: Self.clamp(frame.minY + ((proposedRect.minY - frame.minY) * scaleY).rounded() / scaleY,
+                              min: frame.minY, max: frame.maxY - proposedRect.height)
+            )
+        }
+        setAnchoredSelectionRect(proposedRect)
     }
 
     fileprivate func resizeAnchoredSelection(from initialRect: NSRect, dragging handle: RegionSelectionResizeHandle, to point: NSPoint) {
@@ -374,10 +394,18 @@ final class RegionSelectionState {
     }
 
     func setCapturedImageFromFrozenSnapshots(for rect: CGRect) throws {
-        let image = try Self.cropFrozenSnapshots(snapshots, to: rect)
+        CaptureDiagnostics.log("crop begin selection=\(rect)", captureID: captureID)
+        let crop = try Self.cropFrozenSnapshots(snapshots, to: rect, captureID: captureID)
+        let image = crop.image
         let pngData = try PNGEncoder.encode(image)
+        AppLogging.selection.debug("Crop ready id=\(self.captureID, privacy: .public) pixels=\(image.width)x\(image.height)")
+        CaptureDiagnostics.log("crop complete pixels=\(image.width)x\(image.height)", captureID: captureID)
+        CaptureDiagnostics.recordPNG(pngData, stage: "crop", captureID: captureID)
         capturedImage = image
         capturedPNG = pngData
+        // Preview and annotations must map the exact source-pixel bounds, not
+        // stretch the image back into the original fractional drag rectangle.
+        setAnchoredSelectionRect(crop.rect)
     }
 
     func beginAnnotation(tool: OverlayAnnotationTool, at point: CGPoint, color: NSColor, lineWidth: CGFloat, fontSize: CGFloat? = nil) {
@@ -564,7 +592,7 @@ final class RegionSelectionState {
         return min(max(value, minValue), maxValue)
     }
 
-    private static func cropFrozenSnapshots(_ snapshots: [DisplaySnapshot], to rect: CGRect) throws -> CGImage {
+    private static func cropFrozenSnapshots(_ snapshots: [DisplaySnapshot], to rect: CGRect, captureID: String) throws -> (image: CGImage, rect: CGRect) {
         let selectionRect = rect.standardized
         guard selectionRect.width > 0, selectionRect.height > 0 else {
             throw ScreenshotCaptureError.emptyRegion
@@ -582,11 +610,19 @@ final class RegionSelectionState {
             )
         }
 
+        if intersectingSnapshots.count == 1,
+           let snapshot = intersectingSnapshots.first?.snapshot,
+           snapshot.display.frameInAppKitScreenSpace.contains(selectionRect) {
+            return try cropSingleDisplaySnapshot(snapshot, to: selectionRect, captureID: captureID)
+        }
+
         let outputScale = intersectingSnapshots
             .map { CGFloat($0.snapshot.image.width) / $0.snapshot.display.frameInAppKitScreenSpace.width }
             .max() ?? 1
         let outputWidth = max(1, Int(ceil(selectionRect.width * outputScale)))
         let outputHeight = max(1, Int(ceil(selectionRect.height * outputScale)))
+        AppLogging.selection.debug("Composite crop id=\(captureID, privacy: .public) displays=\(intersectingSnapshots.count) scale=\(Double(outputScale)) pixels=\(outputWidth)x\(outputHeight)")
+        CaptureDiagnostics.log("composite selection=\(selectionRect) intersectingDisplays=\(intersectingSnapshots.count) scale=\(outputScale) output=\(outputWidth)x\(outputHeight)", captureID: captureID)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         guard let context = CGContext(
             data: nil,
@@ -621,6 +657,8 @@ final class RegionSelectionState {
                 width: intersection.width * outputScale,
                 height: intersection.height * outputScale
             )
+            CaptureDiagnostics.log("composite display=\(snapshot.display.localizedName) intersection=\(intersection) sourcePixels=\(sourceRect) destinationPixels=\(destinationRect)", captureID: captureID)
+            CaptureDiagnostics.record(croppedImage, stage: "direct-source-crop", captureID: captureID)
             context.draw(croppedImage, in: destinationRect)
         }
 
@@ -628,7 +666,42 @@ final class RegionSelectionState {
             throw RenderError.missingCGImage
         }
 
-        return outputImage
+        return (outputImage, selectionRect)
+    }
+
+    private static func cropSingleDisplaySnapshot(_ snapshot: DisplaySnapshot, to rect: CGRect, captureID: String) throws -> (image: CGImage, rect: CGRect) {
+        let frame = snapshot.display.frameInAppKitScreenSpace
+        let scaleX = CGFloat(snapshot.image.width) / frame.width
+        let scaleY = CGFloat(snapshot.image.height) / frame.height
+        // Expand to include every source pixel touched by the selection. Use
+        // measured X/Y density rather than assuming a display's backing scale.
+        // Aligned point bounds can round-trip to e.g. 214.00000000000003
+        // pixels at non-integer densities. Remove only sub-pixel numerical
+        // noise before rounding outward, otherwise repeated crops can grow.
+        let minX = floor(sourcePixelEdge((rect.minX - frame.minX) * scaleX))
+        let maxX = ceil(sourcePixelEdge((rect.maxX - frame.minX) * scaleX))
+        let minY = floor(sourcePixelEdge((frame.maxY - rect.maxY) * scaleY))
+        let maxY = ceil(sourcePixelEdge((frame.maxY - rect.minY) * scaleY))
+        let sourceRect = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+            .intersection(CGRect(x: 0, y: 0, width: snapshot.image.width, height: snapshot.image.height))
+        guard !sourceRect.isEmpty, let image = snapshot.image.cropping(to: sourceRect) else {
+            throw RenderError.missingCGImage
+        }
+        let alignedRect = CGRect(
+            x: frame.minX + sourceRect.minX / scaleX,
+            y: frame.maxY - sourceRect.maxY / scaleY,
+            width: sourceRect.width / scaleX,
+            height: sourceRect.height / scaleY
+        )
+        AppLogging.selection.debug("Direct crop id=\(captureID, privacy: .public) sourcePixels=\(String(describing: sourceRect), privacy: .public) alignedSelection=\(String(describing: alignedRect), privacy: .public)")
+        CaptureDiagnostics.log("direct crop display=\(snapshot.display.localizedName) requested=\(rect) sourcePixels=\(sourceRect) alignedSelection=\(alignedRect)", captureID: captureID)
+        CaptureDiagnostics.record(image, stage: "direct-source-crop", captureID: captureID)
+        return (image, alignedRect)
+    }
+
+    private static func sourcePixelEdge(_ value: CGFloat) -> CGFloat {
+        let nearest = value.rounded()
+        return abs(value - nearest) < 0.0000001 ? nearest : value
     }
 
     private static let defaultTextFontSize: CGFloat = 28
@@ -777,6 +850,7 @@ final class RegionCaptureOverlayView: NSView {
     private var selectionResizeStartRect: NSRect?
     private var pendingReselectionStartPoint: NSPoint?
     private var isReselectingRegion = false
+    private var diagnosticDragEventCount = 0
     private var selectedColor: NSColor
     private var selectedStrokeIndex: Int
     private var colorPopover: NSPopover?
@@ -836,7 +910,7 @@ final class RegionCaptureOverlayView: NSView {
         super.viewDidMoveToWindow()
         window?.acceptsMouseMovedEvents = true
         window?.makeFirstResponder(self)
-        NSLog("RegionCapture: overlay view moved to window; requested first responder.")
+        AppLogging.selection.debug("Overlay view attached id=\(self.selectionState.captureID, privacy: .public)")
     }
 
     override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -906,6 +980,8 @@ final class RegionCaptureOverlayView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = screenPoint(for: event)
+        diagnosticDragEventCount = 0
+        CaptureDiagnostics.log("mouseDown window=\(window?.windowNumber ?? -1) frame=\(window?.frame ?? .zero) key=\(window?.isKeyWindow ?? false) point=\(point) anchored=\(selectionState.isSelectionAnchored) captured=\(selectionState.capturedImage != nil)", captureID: selectionState.captureID)
         if let activeTextField {
             let localPoint = convert(event.locationInWindow, from: nil)
             if !activeTextField.frame.contains(localPoint) {
@@ -947,12 +1023,17 @@ final class RegionCaptureOverlayView: NSView {
             return
         }
 
-        NSLog("RegionCapture: selection started at \(point).")
+        AppLogging.selection.debug("Selection started id=\(self.selectionState.captureID, privacy: .public) point=\(String(describing: point), privacy: .public)")
         selectionState.beginSelection(at: point)
         refresh()
     }
 
     override func mouseDragged(with event: NSEvent) {
+        diagnosticDragEventCount += 1
+        if diagnosticDragEventCount == 1 || diagnosticDragEventCount.isMultiple(of: 30) {
+            AppLogging.selection.debug("Drag id=\(self.selectionState.captureID, privacy: .public) events=\(self.diagnosticDragEventCount) point=\(String(describing: self.screenPoint(for: event)), privacy: .public)")
+            CaptureDiagnostics.log("mouseDragged window=\(window?.windowNumber ?? -1) count=\(diagnosticDragEventCount) point=\(screenPoint(for: event)) selection=\(String(describing: selectionState.selectionRect)) anchored=\(selectionState.isSelectionAnchored) captured=\(selectionState.capturedImage != nil)", captureID: selectionState.captureID)
+        }
         if selectionResizeHandle != nil {
             updateSelectionResize(to: screenPoint(for: event))
             return
@@ -979,6 +1060,8 @@ final class RegionCaptureOverlayView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        AppLogging.selection.debug("Mouse released id=\(self.selectionState.captureID, privacy: .public) dragEvents=\(self.diagnosticDragEventCount)")
+        CaptureDiagnostics.log("mouseUp window=\(window?.windowNumber ?? -1) point=\(screenPoint(for: event)) dragEvents=\(diagnosticDragEventCount)", captureID: selectionState.captureID)
         if selectionResizeHandle != nil {
             finishSelectionResize()
             return
@@ -1008,15 +1091,16 @@ final class RegionCaptureOverlayView: NSView {
         refresh()
 
         if let selectionRect = selectionState.selectionRect, selectionRect.width >= 1, selectionRect.height >= 1 {
-            NSLog("RegionCapture: selection completed: \(selectionRect).")
+            AppLogging.selection.debug("Selection completed id=\(self.selectionState.captureID, privacy: .public) rect=\(String(describing: selectionRect), privacy: .public)")
             selectionCompleted(selectionRect)
         } else {
-            NSLog("RegionCapture: ignored empty selection.")
+            AppLogging.selection.debug("Ignored empty selection id=\(self.selectionState.captureID, privacy: .public)")
         }
     }
 
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 {
+            CaptureDiagnostics.log("escape window=\(window?.windowNumber ?? -1)", captureID: selectionState.captureID)
             if activeTextField != nil {
                 cancelActiveTextField()
                 return
@@ -1433,7 +1517,7 @@ final class RegionCaptureOverlayView: NSView {
         isMoveToolActive = true
         colorPopover?.close()
         strokePopover?.close()
-        NSLog("RegionCapture: move tool selected.")
+        AppLogging.selection.debug("Move tool selected id=\(self.selectionState.captureID, privacy: .public)")
         refresh()
     }
 
@@ -1471,7 +1555,7 @@ final class RegionCaptureOverlayView: NSView {
             selectionChanged: { [weak self] color in
                 guard let self else { return }
                 selectedColor = color
-                NSLog("RegionCapture: selected annotation color \(selectedColor).")
+                AppLogging.selection.debug("Annotation color selected id=\(self.selectionState.captureID, privacy: .public)")
                 refresh()
                 colorPopover?.close()
             }
@@ -1494,7 +1578,7 @@ final class RegionCaptureOverlayView: NSView {
             selectionChanged: { [weak self] index in
                 guard let self else { return }
                 selectedStrokeIndex = index
-                NSLog("RegionCapture: selected annotation size \(selectedStrokeWidth).")
+                AppLogging.selection.debug("Annotation size selected id=\(self.selectionState.captureID, privacy: .public) width=\(Double(self.selectedStrokeWidth))")
                 refresh()
             }
         )
@@ -1515,7 +1599,7 @@ final class RegionCaptureOverlayView: NSView {
             activeAnnotationTool = tool
             isMoveToolActive = false
         }
-        NSLog("RegionCapture: annotation tool \(String(describing: activeAnnotationTool)) selected.")
+        AppLogging.selection.debug("Annotation tool selected id=\(self.selectionState.captureID, privacy: .public) tool=\(String(describing: self.activeAnnotationTool), privacy: .public)")
         refresh()
     }
 
@@ -1530,12 +1614,12 @@ final class RegionCaptureOverlayView: NSView {
     private func copyCapturedPNG() {
         commitActiveTextField()
         guard let capturedPNG = renderedPNGForCopy() else {
-            NSLog("RegionCapture: copy requested before captured PNG was ready.")
+            AppLogging.export.debug("Copy ignored before PNG ready id=\(self.selectionState.captureID, privacy: .public)")
             NSSound.beep()
             return
         }
 
-        NSLog("RegionCapture: copy requested for captured PNG, \(capturedPNG.count) bytes.")
+        AppLogging.export.debug("Overlay copy requested id=\(self.selectionState.captureID, privacy: .public) bytes=\(capturedPNG.count)")
         copy(capturedPNG)
     }
 
@@ -1545,19 +1629,19 @@ final class RegionCaptureOverlayView: NSView {
         }
 
         if event.keyCode == Self.cKeyCode || event.charactersIgnoringModifiers?.lowercased() == "c" {
-            NSLog("RegionCapture: Cmd+C handled by \(source).")
+            AppLogging.selection.debug("Cmd+C handled id=\(self.selectionState.captureID, privacy: .public) source=\(source, privacy: .public)")
             copyCapturedPNG()
             return true
         }
 
         if event.keyCode == Self.sKeyCode || event.charactersIgnoringModifiers?.lowercased() == "s" {
-            NSLog("RegionCapture: Cmd+S handled by \(source).")
+            AppLogging.selection.debug("Cmd+S handled id=\(self.selectionState.captureID, privacy: .public) source=\(source, privacy: .public)")
             saveCapturedPNG()
             return true
         }
 
         if event.keyCode == Self.zKeyCode || event.charactersIgnoringModifiers?.lowercased() == "z" {
-            NSLog("RegionCapture: Cmd+Z handled by \(source).")
+            AppLogging.selection.debug("Cmd+Z handled id=\(self.selectionState.captureID, privacy: .public) source=\(source, privacy: .public)")
             undoLastAnnotation()
             return true
         }
@@ -1572,12 +1656,12 @@ final class RegionCaptureOverlayView: NSView {
     private func saveCapturedPNG() {
         commitActiveTextField()
         guard let capturedPNG = renderedPNGForCopy() else {
-            NSLog("RegionCapture: save requested before captured PNG was ready.")
+            AppLogging.export.debug("Save ignored before PNG ready id=\(self.selectionState.captureID, privacy: .public)")
             NSSound.beep()
             return
         }
 
-        NSLog("RegionCapture: save requested for rendered PNG, \(capturedPNG.count) bytes.")
+        AppLogging.export.debug("Overlay save requested id=\(self.selectionState.captureID, privacy: .public) bytes=\(capturedPNG.count)")
         save(capturedPNG)
     }
 
@@ -1665,9 +1749,13 @@ final class RegionCaptureOverlayView: NSView {
         guard let capturedImage = selectionState.capturedImage else { return capturedPNG }
 
         do {
-            return try Renderer().renderPNG(baseImage: capturedImage, annotations: selectionState.annotations)
+            let data = try Renderer().renderPNG(baseImage: capturedImage, annotations: selectionState.annotations)
+            AppLogging.export.notice("PNG rendered id=\(self.selectionState.captureID, privacy: .public) pixels=\(capturedImage.width)x\(capturedImage.height) annotations=\(self.selectionState.annotations.count) bytes=\(data.count)")
+            CaptureDiagnostics.log("export basePixels=\(capturedImage.width)x\(capturedImage.height) annotations=\(selectionState.annotations.count)", captureID: selectionState.captureID)
+            CaptureDiagnostics.recordPNG(data, stage: "export", captureID: selectionState.captureID)
+            return data
         } catch {
-            NSLog("RegionCapture: annotated PNG render failed: \(error.localizedDescription)")
+            AppLogging.export.error("PNG render failed id=\(self.selectionState.captureID, privacy: .public) error=\(error.localizedDescription, privacy: .private)")
             return nil
         }
     }
@@ -1744,7 +1832,7 @@ final class RegionCaptureOverlayView: NSView {
             return
         }
 
-        NSLog("RegionCapture: selection resized with \(String(describing: finishedHandle)) to \(selectionRect).")
+        AppLogging.selection.debug("Selection resized id=\(self.selectionState.captureID, privacy: .public) handle=\(String(describing: finishedHandle), privacy: .public) rect=\(String(describing: selectionRect), privacy: .public)")
         selectionCompleted(selectionRect)
     }
 
@@ -1784,7 +1872,7 @@ final class RegionCaptureOverlayView: NSView {
             return
         }
 
-        NSLog("RegionCapture: selection moved to \(selectionRect).")
+        AppLogging.selection.debug("Selection moved id=\(self.selectionState.captureID, privacy: .public) rect=\(String(describing: selectionRect), privacy: .public)")
         selectionCompleted(selectionRect)
     }
 
@@ -1815,10 +1903,10 @@ final class RegionCaptureOverlayView: NSView {
         refresh()
 
         if let selectionRect = selectionState.selectionRect, selectionRect.width >= 1, selectionRect.height >= 1 {
-            NSLog("RegionCapture: selection reselected: \(selectionRect).")
+            AppLogging.selection.debug("Selection reselected id=\(self.selectionState.captureID, privacy: .public) rect=\(String(describing: selectionRect), privacy: .public)")
             selectionCompleted(selectionRect)
         } else {
-            NSLog("RegionCapture: ignored empty reselection.")
+            AppLogging.selection.debug("Ignored empty reselection id=\(self.selectionState.captureID, privacy: .public)")
         }
     }
 

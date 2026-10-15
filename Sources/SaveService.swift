@@ -9,7 +9,7 @@ final class SaveService {
     }
 
     func savePNG(_ data: Data) throws -> URL {
-        NSLog("SaveService: saving PNG to folder \(preferences.saveFolderURL.path), \(data.count) bytes.")
+        AppLogging.save.debug("Writing PNG bytes=\(data.count) folder=\(self.preferences.saveFolderURL.path, privacy: .private)")
         try FileManager.default.createDirectory(
             at: preferences.saveFolderURL,
             withIntermediateDirectories: true,
@@ -17,7 +17,7 @@ final class SaveService {
         )
         let outputURL = preferences.saveFolderURL.appendingPathComponent(filename())
         try data.write(to: outputURL, options: .atomic)
-        NSLog("SaveService: wrote PNG to \(outputURL.path).")
+        AppLogging.save.debug("PNG written path=\(outputURL.path, privacy: .private)")
         return outputURL
     }
 

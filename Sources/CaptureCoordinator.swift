@@ -32,50 +32,58 @@ final class CaptureCoordinator {
     }
 
     func startRegionCapture() {
-        NSLog("CaptureCoordinator: start region capture requested.")
+        let captureID = UUID().uuidString
+        AppLogging.capture.notice("Capture requested id=\(captureID, privacy: .public)")
+        CaptureDiagnostics.log("capture requested", captureID: captureID)
+        CaptureDiagnostics.recordEnvironment()
         Task { [weak self] in
             guard let self else { return }
 
             do {
                 overlayController.cancel()
                 let displays = DisplayGeometry.currentDisplays()
-                let snapshots = try await screenshotService.captureDisplaySnapshots(displays: displays)
-                NSLog("CaptureCoordinator: captured \(snapshots.count) frozen display snapshots.")
+                let snapshots = try await AppLogging.$captureID.withValue(captureID) {
+                    try await self.screenshotService.captureDisplaySnapshots(displays: displays)
+                }
+                AppLogging.capture.notice("Snapshots ready id=\(captureID, privacy: .public) displays=\(snapshots.count)")
                 overlayController.start(
+                    captureID: captureID,
                     snapshots: snapshots,
                     defaultAnnotationColor: preferences.defaultAnnotationColor,
                     defaultAnnotationStrokeWidth: preferences.defaultAnnotationStrokeWidth
                 )
             } catch {
-                NSLog("CaptureCoordinator: frozen snapshot capture failed: \(error.localizedDescription)")
+                AppLogging.capture.error("Capture failed id=\(captureID, privacy: .public) domain=\((error as NSError).domain, privacy: .public) code=\((error as NSError).code) detail=\(error.localizedDescription, privacy: .private)")
                 overlayController.showCaptureError(error)
             }
         }
     }
 
     private func copyAndClose(_ data: Data) {
-        NSLog("CaptureCoordinator: copy requested, \(data.count) bytes.")
+        let captureID = overlayController.captureID
+        AppLogging.export.debug("Copy requested id=\(captureID, privacy: .public) bytes=\(data.count)")
         do {
             try clipboardService.copyPNG(data)
-            NSLog("CaptureCoordinator: copy succeeded; closing overlay.")
+            AppLogging.export.notice("Copy succeeded id=\(captureID, privacy: .public) bytes=\(data.count)")
             overlayController.cancel()
         } catch {
-            NSLog("CaptureCoordinator: copy failed: \(error.localizedDescription)")
+            AppLogging.export.error("Copy failed id=\(captureID, privacy: .public) domain=\((error as NSError).domain, privacy: .public) code=\((error as NSError).code) detail=\(error.localizedDescription, privacy: .private)")
             overlayController.showCaptureError(error)
         }
     }
 
     private func saveAndClose(_ data: Data) {
-        NSLog("CaptureCoordinator: save requested, \(data.count) bytes.")
+        let captureID = overlayController.captureID
+        AppLogging.save.debug("Save requested id=\(captureID, privacy: .public) bytes=\(data.count)")
         do {
             let outputURL = try saveService.savePNG(data)
-            NSLog("CaptureCoordinator: save succeeded at \(outputURL.path); closing overlay.")
+            AppLogging.save.notice("Save succeeded id=\(captureID, privacy: .public) bytes=\(data.count) path=\(outputURL.path, privacy: .private)")
             overlayController.cancel()
             if preferences.showsSaveConfirmation {
                 saveConfirmationToastController.showSavedFile(at: outputURL)
             }
         } catch {
-            NSLog("CaptureCoordinator: save failed: \(error.localizedDescription)")
+            AppLogging.save.error("Save failed id=\(captureID, privacy: .public) domain=\((error as NSError).domain, privacy: .public) code=\((error as NSError).code) detail=\(error.localizedDescription, privacy: .private)")
             overlayController.showSaveError(error)
         }
     }

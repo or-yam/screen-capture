@@ -31,13 +31,13 @@ final class GlobalShortcutManager {
         )
 
         guard status == noErr, let hotKeyRef else {
-            NSLog("ScreenCaptureAll failed to register global shortcut Cmd+Shift+S. Carbon status: \(status)")
+            AppLogging.lifecycle.error("Global shortcut registration failed status=\(status)")
             stop()
             return
         }
 
         self.hotKeyRef = hotKeyRef
-        NSLog("ScreenCaptureAll registered global shortcut Cmd+Shift+S using Carbon RegisterEventHotKey; no Accessibility permission is required.")
+        AppLogging.lifecycle.notice("Global shortcut registered: Cmd+Shift+S")
     }
 
     func stop() {
@@ -98,7 +98,7 @@ final class GlobalShortcutManager {
         )
 
         if status != noErr {
-            NSLog("ScreenCaptureAll failed to install global shortcut event handler. Carbon status: \(status)")
+            AppLogging.lifecycle.error("Global shortcut event handler installation failed status=\(status)")
             return false
         }
 

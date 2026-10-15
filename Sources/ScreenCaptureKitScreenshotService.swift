@@ -121,6 +121,9 @@ final class ScreenCaptureKitScreenshotService: ScreenshotCapturing {
 
         for display in displays {
             let image = try await captureRegion(ScreenRegion(display: display, displays: displays))
+            AppLogging.capture.debug("Snapshot id=\(AppLogging.captureID ?? "none", privacy: .public) pixels=\(image.width)x\(image.height) scaleX=\(Double(CGFloat(image.width) / display.frameInAppKitScreenSpace.width)) scaleY=\(Double(CGFloat(image.height) / display.frameInAppKitScreenSpace.height))")
+            CaptureDiagnostics.log("snapshot display=\(display.localizedName) appKitFrame=\(display.frameInAppKitScreenSpace) captureFrame=\(display.frameInDisplaySpace) backingScale=\(display.backingScaleFactor) pixels=\(image.width)x\(image.height) actualScaleX=\(CGFloat(image.width) / display.frameInAppKitScreenSpace.width) actualScaleY=\(CGFloat(image.height) / display.frameInAppKitScreenSpace.height)")
+            CaptureDiagnostics.record(image, stage: "snapshot")
             snapshots.append(DisplaySnapshot(display: display, image: image))
         }
 
@@ -128,6 +131,7 @@ final class ScreenCaptureKitScreenshotService: ScreenshotCapturing {
     }
 
     func captureRegion(_ region: ScreenRegion) async throws -> CGImage {
+        let captureID = AppLogging.captureID ?? "none"
         let rect = region.rectInDisplaySpace.standardized.integral
         guard rect.width > 0, rect.height > 0 else {
             logCaptureDiagnostics(
@@ -158,6 +162,7 @@ final class ScreenCaptureKitScreenshotService: ScreenshotCapturing {
         }
 
         guard CGPreflightScreenCaptureAccess() else {
+            AppLogging.permission.error("Screen Recording denied id=\(captureID, privacy: .public)")
             logCaptureDiagnostics(
                 message: "Screen Recording permission is not granted.",
                 region: region,
@@ -169,12 +174,15 @@ final class ScreenCaptureKitScreenshotService: ScreenshotCapturing {
         let image: CGImage = try await withCheckedThrowingContinuation { continuation in
             SCScreenshotManager.captureImage(in: rect) { image, error in
                 if let error {
+                    AppLogging.capture.error("ScreenCaptureKit failed id=\(captureID, privacy: .public) domain=\((error as NSError).domain, privacy: .public) code=\((error as NSError).code) detail=\(error.localizedDescription, privacy: .private)")
                     Self.logCaptureDiagnostics(
+                        captureID: captureID,
                         message: "ScreenCaptureKit capture failed: \(error)",
                         region: region,
                         captureRect: rect
                     )
                     if !CGPreflightScreenCaptureAccess() {
+                        AppLogging.permission.error("Screen Recording unavailable after capture failure id=\(captureID, privacy: .public)")
                         continuation.resume(
                             throwing: ScreenshotCaptureError.screenRecordingPermissionDenied(underlyingError: error)
                         )
@@ -184,7 +192,9 @@ final class ScreenCaptureKitScreenshotService: ScreenshotCapturing {
                 } else if let image {
                     continuation.resume(returning: image)
                 } else {
+                    AppLogging.capture.error("ScreenCaptureKit returned no image id=\(captureID, privacy: .public)")
                     Self.logCaptureDiagnostics(
+                        captureID: captureID,
                         message: "ScreenCaptureKit returned no image and no error.",
                         region: region,
                         captureRect: rect
@@ -254,6 +264,7 @@ final class ScreenCaptureKitScreenshotService: ScreenshotCapturing {
     }
 
     private static func logCaptureDiagnostics(
+        captureID: String = AppLogging.captureID ?? "none",
         message: String,
         region: ScreenRegion,
         captureRect: CGRect,
@@ -264,15 +275,7 @@ final class ScreenCaptureKitScreenshotService: ScreenshotCapturing {
         }.joined(separator: "; ")
         let outputDescription = outputImageSize.map { format($0) } ?? "unavailable"
 
-        NSLog(
-            "Region capture diagnostic: %@ selectedAppKitRect=%@ selectedDisplayRect=%@ captureRect=%@ outputImageSize=%@ displays=[%@]",
-            message,
-            format(region.rectInAppKitScreenSpace),
-            format(region.rectInDisplaySpace),
-            format(captureRect),
-            outputDescription,
-            displayDescriptions
-        )
+        AppLogging.capture.debug("Capture geometry id=\(captureID, privacy: .public) detail=\(message, privacy: .private) selectedAppKitRect=\(format(region.rectInAppKitScreenSpace), privacy: .public) selectedDisplayRect=\(format(region.rectInDisplaySpace), privacy: .public) captureRect=\(format(captureRect), privacy: .public) output=\(outputDescription, privacy: .public) displays=\(displayDescriptions, privacy: .private)")
     }
 
     private func format(_ rect: CGRect) -> String {
