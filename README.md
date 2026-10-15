@@ -22,7 +22,9 @@ The MVP is region capture only. Window capture, full-screen capture, history, up
 - Selections wholly inside one display are aligned outward to source pixels and cropped directly, without resampling. The anchored outline follows those pixel bounds; same-display moves snap to that pixel grid. Spanning selections use the existing compositor.
 - Shows the annotation toolbar only after a valid region exists.
 - Supports Arrow, Text, Rectangle, Draw, Highlight, Color, Stroke size, Undo, Copy, Save, and Close.
-- Uses shared image-space annotation drawing for preview and export; a display showing only part of the selection clips it without rescaling it.
+- With Move selected, lets the user resize using edge/corner handles even after annotating. Resize and Move keep annotations anchored over the same frozen screen content, without stretching them.
+- Hides annotation content outside the selection without deleting it; resizing or moving back reveals it. Undo removes annotations only (including hidden ones), not selection changes. Drawing a replacement selection remains disabled while annotations exist.
+- Uses a shared, stable screen-point annotation canvas for preview and export; a display showing only part of the selection clips it without rescaling it. Existing annotations keep their screen-space size when output density changes.
 - Copies flattened annotated PNG data to `NSPasteboard`.
 - Saves flattened annotated PNG files to the configured screenshot folder.
 - Handles Screen Recording permission denial with a targeted alert and an Open System Settings action.
@@ -62,7 +64,7 @@ For local capture debugging, use the signed debug bundle described below. `swift
 swift test
 ```
 
-The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, and offscreen AppKit preview/export annotation placement at 1×, 2×, and 5/3× density, including a partially visible selection. It uses synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, app windows, or system clipboard writes. It does not replace signed-app QA on real displays.
+The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, stable annotation mapping, all resize handles/tools, Move and clipping/reveal, annotation-only undo, and offscreen AppKit preview/export placement at 1×, 2×, and 5/3× density. It also routes synthetic mouse/keyboard events through the overlay, including export during resizing and replacement-selection restrictions. It uses synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, app windows, or system clipboard writes. It does not replace signed-app QA on real displays.
 
 Some Swift 6.4 Command Line Tools builds fail to discover the bundled `TestingMacros` plugin when compiling the test module. If `swift test` reports that exact missing-plugin error, explicitly load the selected toolchain's plugin:
 

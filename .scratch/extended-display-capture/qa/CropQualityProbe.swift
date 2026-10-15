@@ -46,7 +46,8 @@ struct CropQualityProbe {
                 let grayPixels = stride(from: 0, to: cropBytes.count, by: 4).filter {
                     cropBytes[$0] > 0 && cropBytes[$0] < 255
                 }.count
-                let png = try Renderer().renderPNG(baseImage: crop, annotations: [])
+                guard let canvas = state.annotationCanvas else { throw ProbeError.missingImage }
+                let png = try Renderer().renderPNG(baseImage: crop, annotations: [], canvas: canvas, selectionRect: aligned)
                 guard let decoder = CGImageSourceCreateWithData(png as CFData, nil),
                       let exported = CGImageSourceCreateImageAtIndex(decoder, 0, nil) else {
                     throw ProbeError.missingImage
@@ -72,11 +73,13 @@ struct CropQualityProbe {
                         throw ProbeError.baselineChanged
                     }
                 }
-                state.beginAnnotation(tool: .rectangle, at: CGPoint(x: 4, y: 4), color: .systemRed, lineWidth: 2)
-                state.updateAnnotation(to: CGPoint(x: 12, y: 10))
+                guard let movedFrame = state.capturedSelectionRect else { throw ProbeError.missingImage }
+                let annotationOrigin = canvas.point(fromScreen: CGPoint(x: movedFrame.minX, y: movedFrame.maxY))
+                state.beginAnnotation(tool: .rectangle, at: CGPoint(x: annotationOrigin.x + 4, y: annotationOrigin.y + 4), color: .systemRed, lineWidth: 2)
+                state.updateAnnotation(to: CGPoint(x: annotationOrigin.x + 12, y: annotationOrigin.y + 10))
                 state.commitAnnotation()
                 guard let movedCrop = state.capturedImage else { throw ProbeError.missingImage }
-                let annotatedData = try Renderer().renderPNG(baseImage: movedCrop, annotations: state.annotations)
+                let annotatedData = try Renderer().renderPNG(baseImage: movedCrop, annotations: state.annotations, canvas: canvas, selectionRect: movedFrame)
                 guard let annotatedSource = CGImageSourceCreateWithData(annotatedData as CFData, nil),
                       let annotated = CGImageSourceCreateImageAtIndex(annotatedSource, 0, nil),
                       state.annotations.count == 1,

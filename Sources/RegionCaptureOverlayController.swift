@@ -167,7 +167,7 @@ final class RegionCaptureOverlayController: CaptureOverlay {
     }
 }
 
-private enum RegionSelectionResizeHandle: CaseIterable {
+enum RegionSelectionResizeHandle: CaseIterable {
     case topLeft
     case top
     case topRight
@@ -274,14 +274,23 @@ final class RegionSelectionState {
     private(set) var isSelectionAnchored = false
     private(set) var capturedPNG: Data?
     private(set) var capturedImage: CGImage?
+    // The image and this frame are committed together. Live drag bounds may differ.
+    private(set) var capturedSelectionRect: NSRect?
+    private(set) var annotationCanvas: AnnotationCanvas?
     private(set) var annotations: [OverlayAnnotation] = []
     private(set) var draftAnnotation: OverlayAnnotation?
 
-    private var annotationDragAnchorInImageSpace: CGPoint?
+    private var annotationDragAnchorInCanvas: CGPoint?
+    private var annotationPixelSizeInCanvas = CGSize(width: 1, height: 1)
 
     init(snapshots: [DisplaySnapshot] = [], captureID: String = "none") {
         self.snapshots = snapshots
         self.captureID = captureID
+        if let frame = snapshots.map(\.display.frameInAppKitScreenSpace).reduce(nil as CGRect?, { bounds, frame in
+            bounds.map { $0.union(frame) } ?? frame
+        }) {
+            annotationCanvas = AnnotationCanvas(frameInAppKitScreenSpace: frame)
+        }
     }
 
     var selectionRect: NSRect? {
@@ -317,9 +326,10 @@ final class RegionSelectionState {
         isSelectionAnchored = false
         capturedPNG = nil
         capturedImage = nil
+        capturedSelectionRect = nil
         annotations = []
         draftAnnotation = nil
-        annotationDragAnchorInImageSpace = nil
+        annotationDragAnchorInCanvas = nil
     }
 
     func updateSelection(to point: NSPoint) {
@@ -334,9 +344,10 @@ final class RegionSelectionState {
         isSelectionAnchored = true
         capturedPNG = nil
         capturedImage = nil
+        capturedSelectionRect = nil
         annotations = []
         draftAnnotation = nil
-        annotationDragAnchorInImageSpace = nil
+        annotationDragAnchorInCanvas = nil
     }
 
     func moveAnchoredSelection(from initialRect: NSRect, by delta: NSSize) {
@@ -362,10 +373,12 @@ final class RegionSelectionState {
         setAnchoredSelectionRect(proposedRect)
     }
 
-    fileprivate func resizeAnchoredSelection(from initialRect: NSRect, dragging handle: RegionSelectionResizeHandle, to point: NSPoint) {
+    func resizeAnchoredSelection(from initialRect: NSRect, dragging handle: RegionSelectionResizeHandle, to point: NSPoint) {
         guard isSelectionAnchored else { return }
 
-        let bounds = snapshotBounds ?? initialRect
+        let bounds = snapshots.first {
+            $0.display.frameInAppKitScreenSpace.contains(initialRect)
+        }?.display.frameInAppKitScreenSpace ?? snapshotBounds ?? initialRect
         let minSelectionSize: CGFloat = 12
         var minX = initialRect.minX
         var maxX = initialRect.maxX
@@ -403,110 +416,106 @@ final class RegionSelectionState {
         CaptureDiagnostics.recordPNG(pngData, stage: "crop", captureID: captureID)
         capturedImage = image
         capturedPNG = pngData
+        capturedSelectionRect = crop.rect
         // Preview and annotations must map the exact source-pixel bounds, not
         // stretch the image back into the original fractional drag rectangle.
         setAnchoredSelectionRect(crop.rect)
     }
 
     func beginAnnotation(tool: OverlayAnnotationTool, at point: CGPoint, color: NSColor, lineWidth: CGFloat, fontSize: CGFloat? = nil) {
-        guard capturedImage != nil else { return }
+        guard let capturedImage, let capturedSelectionRect, annotationCanvas != nil else { return }
 
-        annotationDragAnchorInImageSpace = point
+        // Tool preferences remain image-pixel values. Convert once at creation;
+        // existing marks then keep their screen size as the output density changes.
+        annotationPixelSizeInCanvas = CGSize(
+            width: capturedSelectionRect.width / CGFloat(capturedImage.width),
+            height: capturedSelectionRect.height / CGFloat(capturedImage.height)
+        )
+        let canvasLineWidth = lineWidth * annotationPixelSizeInCanvas.width
+        annotationDragAnchorInCanvas = point
         switch tool {
         case .arrow:
             draftAnnotation = OverlayAnnotation(
                 kind: .arrow,
-                pointsInImageSpace: [point, point],
+                pointsInCanvas: [point, point],
                 color: color,
-                lineWidth: lineWidth
+                lineWidth: canvasLineWidth,
+                minimumArrowheadLength: 10 * annotationPixelSizeInCanvas.width,
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
             )
         case .rectangle:
             draftAnnotation = OverlayAnnotation(
                 kind: .rectangle,
-                rectInImageSpace: CGRect(origin: point, size: .zero),
+                rectInCanvas: CGRect(origin: point, size: .zero),
                 color: color,
-                lineWidth: lineWidth
+                lineWidth: canvasLineWidth,
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
             )
         case .draw:
             draftAnnotation = OverlayAnnotation(
                 kind: .draw,
-                pointsInImageSpace: [point],
+                pointsInCanvas: [point],
                 color: color,
-                lineWidth: lineWidth
+                lineWidth: canvasLineWidth,
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
             )
         case .highlight:
             draftAnnotation = OverlayAnnotation(
                 kind: .highlight,
-                pointsInImageSpace: [point],
+                pointsInCanvas: [point],
                 color: color.withAlphaComponent(0.35),
-                lineWidth: lineWidth * 3
+                lineWidth: canvasLineWidth * 3,
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
             )
         case .text:
             draftAnnotation = OverlayAnnotation(
                 kind: .text,
                 text: "",
-                textPositionInImageSpace: point,
+                textPositionInCanvas: point,
                 color: color,
-                fontSize: fontSize ?? Self.defaultTextFontSize
+                fontSize: (fontSize ?? Self.defaultTextFontSize) * annotationPixelSizeInCanvas.height,
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
             )
         }
     }
 
     func updateAnnotation(to point: CGPoint) {
-        guard let annotationDragAnchorInImageSpace, let draftAnnotation else { return }
+        guard let annotationDragAnchorInCanvas, var draftAnnotation else { return }
 
         switch draftAnnotation.kind {
         case .arrow:
-            self.draftAnnotation = OverlayAnnotation(
-                id: draftAnnotation.id,
-                kind: .arrow,
-                pointsInImageSpace: [annotationDragAnchorInImageSpace, point],
-                color: draftAnnotation.color,
-                lineWidth: draftAnnotation.lineWidth
-            )
+            draftAnnotation.pointsInCanvas = [annotationDragAnchorInCanvas, point]
         case .rectangle:
-            self.draftAnnotation = OverlayAnnotation(
-                id: draftAnnotation.id,
-                kind: .rectangle,
-                rectInImageSpace: Self.normalizedRect(from: annotationDragAnchorInImageSpace, to: point),
-                color: draftAnnotation.color,
-                lineWidth: draftAnnotation.lineWidth
-            )
+            draftAnnotation.rectInCanvas = Self.normalizedRect(from: annotationDragAnchorInCanvas, to: point)
         case .draw, .highlight:
-            var points = draftAnnotation.pointsInImageSpace
-            if points.last.map({ hypot($0.x - point.x, $0.y - point.y) >= 1 }) ?? true {
-                points.append(point)
+            if draftAnnotation.pointsInCanvas.last.map({ annotationPixelDistance(from: $0, to: point) >= 1 }) ?? true {
+                draftAnnotation.pointsInCanvas.append(point)
             }
-            self.draftAnnotation = OverlayAnnotation(
-                id: draftAnnotation.id,
-                kind: draftAnnotation.kind,
-                pointsInImageSpace: points,
-                color: draftAnnotation.color,
-                lineWidth: draftAnnotation.lineWidth
-            )
         case .text:
             return
         }
+        self.draftAnnotation = draftAnnotation
     }
 
     func commitAnnotation() {
         defer {
-            annotationDragAnchorInImageSpace = nil
+            annotationDragAnchorInCanvas = nil
             draftAnnotation = nil
         }
 
         guard let draftAnnotation else { return }
         guard draftAnnotation.kind != .text else { return }
-        if let rect = draftAnnotation.rectInImageSpace, rect.width < 1 || rect.height < 1 {
+        if let rect = draftAnnotation.rectInCanvas,
+           rect.width < annotationPixelSizeInCanvas.width || rect.height < annotationPixelSizeInCanvas.height {
             return
         }
         if draftAnnotation.kind == .arrow,
-           let start = draftAnnotation.pointsInImageSpace.first,
-           let end = draftAnnotation.pointsInImageSpace.last,
-           hypot(start.x - end.x, start.y - end.y) < 1 {
+           let start = draftAnnotation.pointsInCanvas.first,
+           let end = draftAnnotation.pointsInCanvas.last,
+           annotationPixelDistance(from: start, to: end) < 1 {
             return
         }
-        if draftAnnotation.pointsInImageSpace.count == 1 {
+        if draftAnnotation.pointsInCanvas.count == 1 {
             return
         }
 
@@ -521,7 +530,7 @@ final class RegionSelectionState {
 
     func commitDraftText() {
         defer {
-            annotationDragAnchorInImageSpace = nil
+            annotationDragAnchorInCanvas = nil
             draftAnnotation = nil
         }
 
@@ -536,7 +545,7 @@ final class RegionSelectionState {
     func undoLastAnnotation() {
         if draftAnnotation != nil {
             draftAnnotation = nil
-            annotationDragAnchorInImageSpace = nil
+            annotationDragAnchorInCanvas = nil
             return
         }
 
@@ -551,9 +560,17 @@ final class RegionSelectionState {
         isSelectionAnchored = false
         capturedPNG = nil
         capturedImage = nil
+        capturedSelectionRect = nil
+        annotationCanvas = nil
         annotations = []
         draftAnnotation = nil
-        annotationDragAnchorInImageSpace = nil
+        annotationDragAnchorInCanvas = nil
+        annotationPixelSizeInCanvas = CGSize(width: 1, height: 1)
+    }
+
+    private func annotationPixelDistance(from start: CGPoint, to end: CGPoint) -> CGFloat {
+        hypot((end.x - start.x) / annotationPixelSizeInCanvas.width,
+              (end.y - start.y) / annotationPixelSizeInCanvas.height)
     }
 
     private func setAnchoredSelectionRect(_ rect: NSRect) {
@@ -621,6 +638,10 @@ final class RegionSelectionState {
             .max() ?? 1
         let outputWidth = max(1, Int(ceil(selectionRect.width * outputScale)))
         let outputHeight = max(1, Int(ceil(selectionRect.height * outputScale)))
+        // Allocation rounds outward. Background content and annotations must
+        // share the resulting effective X/Y density, not the nominal scale.
+        let outputScaleX = CGFloat(outputWidth) / selectionRect.width
+        let outputScaleY = CGFloat(outputHeight) / selectionRect.height
         AppLogging.selection.debug("Composite crop id=\(captureID, privacy: .public) displays=\(intersectingSnapshots.count) scale=\(Double(outputScale)) pixels=\(outputWidth)x\(outputHeight)")
         CaptureDiagnostics.log("composite selection=\(selectionRect) intersectingDisplays=\(intersectingSnapshots.count) scale=\(outputScale) output=\(outputWidth)x\(outputHeight)", captureID: captureID)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -652,14 +673,35 @@ final class RegionSelectionState {
             guard let croppedImage = snapshot.image.cropping(to: sourceRect), !sourceRect.isEmpty else { continue }
 
             let destinationRect = CGRect(
-                x: (intersection.minX - selectionRect.minX) * outputScale,
-                y: (intersection.minY - selectionRect.minY) * outputScale,
-                width: intersection.width * outputScale,
-                height: intersection.height * outputScale
+                x: (intersection.minX - selectionRect.minX) * outputScaleX,
+                y: (intersection.minY - selectionRect.minY) * outputScaleY,
+                width: intersection.width * outputScaleX,
+                height: intersection.height * outputScaleY
+            )
+            // The integral source crop can include extra edge pixels. Preserve
+            // their actual screen extent rather than squeezing them into the
+            // fractional intersection, which would move content beneath marks.
+            let alignedSourceFrame = CGRect(
+                x: frame.minX + sourceRect.minX / scaleX,
+                y: frame.maxY - sourceRect.maxY / scaleY,
+                width: sourceRect.width / scaleX,
+                height: sourceRect.height / scaleY
+            )
+            let alignedDestinationRect = CGRect(
+                x: (alignedSourceFrame.minX - selectionRect.minX) * outputScaleX,
+                y: (alignedSourceFrame.minY - selectionRect.minY) * outputScaleY,
+                width: alignedSourceFrame.width * outputScaleX,
+                height: alignedSourceFrame.height * outputScaleY
             )
             CaptureDiagnostics.log("composite display=\(snapshot.display.localizedName) intersection=\(intersection) sourcePixels=\(sourceRect) destinationPixels=\(destinationRect)", captureID: captureID)
             CaptureDiagnostics.record(croppedImage, stage: "direct-source-crop", captureID: captureID)
-            context.draw(croppedImage, in: destinationRect)
+            context.saveGState()
+            // Display intersections tile the output. Antialiased clip coverage
+            // would source-over two partial pixels into a translucent seam.
+            context.setShouldAntialias(false)
+            context.clip(to: destinationRect)
+            context.draw(croppedImage, in: alignedDestinationRect)
+            context.restoreGState()
         }
 
         guard let outputImage = context.makeImage() else {
@@ -718,34 +760,42 @@ enum OverlayAnnotationTool: CaseIterable {
 struct OverlayAnnotation: Identifiable {
     let id: UUID
     var kind: OverlayAnnotationTool
-    var rectInImageSpace: CGRect?
-    var pointsInImageSpace: [CGPoint]
+    var rectInCanvas: CGRect?
+    var pointsInCanvas: [CGPoint]
     var text: String
-    var textPositionInImageSpace: CGPoint?
+    var textPositionInCanvas: CGPoint?
     var color: NSColor
     var lineWidth: CGFloat
     var fontSize: CGFloat
+    var minimumArrowheadLength: CGFloat
+    // Retain the creation-time pixel basis for stroke/glyph proportions when
+    // measured X/Y density differs. Selection changes never update this basis.
+    let creationPixelSizeInCanvas: CGSize
 
     init(
         id: UUID = UUID(),
         kind: OverlayAnnotationTool,
-        rectInImageSpace: CGRect? = nil,
-        pointsInImageSpace: [CGPoint] = [],
+        rectInCanvas: CGRect? = nil,
+        pointsInCanvas: [CGPoint] = [],
         text: String = "",
-        textPositionInImageSpace: CGPoint? = nil,
+        textPositionInCanvas: CGPoint? = nil,
         color: NSColor = .systemRed,
         lineWidth: CGFloat = 4,
-        fontSize: CGFloat = 28
+        fontSize: CGFloat = 28,
+        minimumArrowheadLength: CGFloat = 10,
+        creationPixelSizeInCanvas: CGSize = CGSize(width: 1, height: 1)
     ) {
         self.id = id
         self.kind = kind
-        self.rectInImageSpace = rectInImageSpace?.standardized
-        self.pointsInImageSpace = pointsInImageSpace
+        self.rectInCanvas = rectInCanvas?.standardized
+        self.pointsInCanvas = pointsInCanvas
         self.text = text
-        self.textPositionInImageSpace = textPositionInImageSpace
+        self.textPositionInCanvas = textPositionInCanvas
         self.color = color
         self.lineWidth = lineWidth
         self.fontSize = fontSize
+        self.minimumArrowheadLength = minimumArrowheadLength
+        self.creationPixelSizeInCanvas = creationPixelSizeInCanvas
     }
 }
 
@@ -930,13 +980,17 @@ final class RegionCaptureOverlayView: NSView {
             return
         }
 
-        let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
-        if !localSelectionRect.isEmpty {
-            addCursorRect(localSelectionRect, cursor: isMoveToolActive ? .openHand : .arrow)
+        let fullLocalSelectionRect = convertScreenRectToLocal(selectionRect)
+        let visibleSelectionRect = fullLocalSelectionRect.intersection(bounds)
+        if !visibleSelectionRect.isEmpty {
+            addCursorRect(visibleSelectionRect, cursor: isMoveToolActive ? .openHand : .arrow)
         }
         if canResizeRegion {
             for handle in RegionSelectionResizeHandle.allCases {
-                addCursorRect(resizeHandleHitRect(for: handle, in: localSelectionRect), cursor: handle.cursor)
+                let hitRect = resizeHandleHitRect(for: handle, in: fullLocalSelectionRect).intersection(bounds)
+                if !hitRect.isEmpty {
+                    addCursorRect(hitRect, cursor: handle.cursor)
+                }
             }
         }
 
@@ -992,14 +1046,14 @@ final class RegionCaptureOverlayView: NSView {
             beginSelectionResize(handle: handle)
             return
         }
-        if let activeAnnotationTool, let imagePoint = imagePointForAnnotationEvent(event) {
+        if let activeAnnotationTool, let canvasPoint = canvasPointForAnnotationEvent(event) {
             if activeAnnotationTool == .text {
                 beginTextAnnotation(event: event)
                 return
             }
             selectionState.beginAnnotation(
                 tool: activeAnnotationTool,
-                at: imagePoint,
+                at: canvasPoint,
                 color: selectedColor,
                 lineWidth: selectedStrokeWidth
             )
@@ -1046,8 +1100,8 @@ final class RegionCaptureOverlayView: NSView {
             updatePendingReselection(to: screenPoint(for: event))
             return
         }
-        if activeAnnotationTool != nil, activeAnnotationTool != .text, let imagePoint = imagePointForAnnotationEvent(event) {
-            selectionState.updateAnnotation(to: imagePoint)
+        if activeAnnotationTool != nil, activeAnnotationTool != .text, let canvasPoint = canvasPointForAnnotationEvent(event) {
+            selectionState.updateAnnotation(to: canvasPoint)
             refresh()
             return
         }
@@ -1074,8 +1128,8 @@ final class RegionCaptureOverlayView: NSView {
             finishPendingReselection(at: screenPoint(for: event))
             return
         }
-        if activeAnnotationTool != nil, activeAnnotationTool != .text, let imagePoint = imagePointForAnnotationEvent(event) {
-            selectionState.updateAnnotation(to: imagePoint)
+        if activeAnnotationTool != nil, activeAnnotationTool != .text, let canvasPoint = canvasPointForAnnotationEvent(event) {
+            selectionState.updateAnnotation(to: canvasPoint)
             selectionState.commitAnnotation()
             refresh()
             return
@@ -1132,7 +1186,7 @@ final class RegionCaptureOverlayView: NSView {
 
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: localSelectionRect).addClip()
-        if let capturedImage = selectionState.capturedImage, selectionMoveStartPoint == nil, selectionResizeHandle == nil {
+        if let capturedImage = selectionState.capturedImage, selectionState.capturedSelectionRect == selectionRect {
             NSImage(cgImage: capturedImage, size: fullLocalSelectionRect.size).draw(in: fullLocalSelectionRect)
         } else if drewFrozenBackground {
             drawFrozenSnapshots(in: localSelectionRect)
@@ -1144,17 +1198,17 @@ final class RegionCaptureOverlayView: NSView {
         NSGraphicsContext.restoreGraphicsState()
 
         NSColor.white.setStroke()
-        let borderPath = NSBezierPath(rect: localSelectionRect)
+        let borderPath = NSBezierPath(rect: fullLocalSelectionRect)
         borderPath.lineWidth = 2
         borderPath.stroke()
 
         NSColor.systemBlue.setStroke()
-        let accentPath = NSBezierPath(rect: localSelectionRect.insetBy(dx: 1, dy: 1))
+        let accentPath = NSBezierPath(rect: fullLocalSelectionRect.insetBy(dx: 1, dy: 1))
         accentPath.lineWidth = 1
         accentPath.stroke()
 
         if canResizeRegion {
-            drawResizeHandles(in: localSelectionRect)
+            drawResizeHandles(in: fullLocalSelectionRect)
         }
     }
 
@@ -1682,8 +1736,9 @@ final class RegionCaptureOverlayView: NSView {
         commitActiveTextField()
 
         guard
-            let capturedImage = selectionState.capturedImage,
-            let selectionRect = selectionState.selectionRect
+            selectionState.capturedImage != nil,
+            let selectionRect = selectionState.selectionRect,
+            let canvas = selectionState.annotationCanvas
         else {
             return
         }
@@ -1697,22 +1752,20 @@ final class RegionCaptureOverlayView: NSView {
             cancel: { [weak self] in self?.cancelActiveTextField() }
         )
         let localPoint = convert(event.locationInWindow, from: nil)
-        let fontSize = selectedTextFontSize * fullLocalSelectionRect.width / CGFloat(capturedImage.width)
         let fieldWidth = min(max(localSelectionRect.width - (localPoint.x - localSelectionRect.minX), 120), min(280, localSelectionRect.width))
-        let fieldHeight = max(fontSize + 10, 32)
         let fieldX = min(localPoint.x, localSelectionRect.maxX - fieldWidth)
-        let adjustedImagePoint = CGPoint(
-            x: (fieldX - fullLocalSelectionRect.minX) / fullLocalSelectionRect.width * CGFloat(capturedImage.width),
-            y: (fullLocalSelectionRect.maxY - localPoint.y) / fullLocalSelectionRect.height * CGFloat(capturedImage.height)
-        )
+        let fieldPointInWindow = convert(NSPoint(x: fieldX, y: localPoint.y), to: nil)
+        let adjustedCanvasPoint = canvas.point(fromScreen: window?.convertPoint(toScreen: fieldPointInWindow) ?? fieldPointInWindow)
         selectionState.beginAnnotation(
             tool: .text,
-            at: adjustedImagePoint,
+            at: adjustedCanvasPoint,
             color: selectedColor,
             lineWidth: selectedStrokeWidth,
             fontSize: selectedTextFontSize
         )
-        field.font = .systemFont(ofSize: fontSize, weight: .semibold)
+        guard let draft = selectionState.draftAnnotation else { return }
+        let fieldHeight = max(draft.fontSize + 10, 32)
+        field.font = .systemFont(ofSize: draft.fontSize / draft.creationPixelSizeInCanvas.height, weight: .semibold)
         field.textColor = selectedColor
         field.frame = NSRect(
             x: fieldX,
@@ -1720,6 +1773,12 @@ final class RegionCaptureOverlayView: NSView {
             width: fieldWidth,
             height: fieldHeight
         )
+        // Use the same creation-time font and X/Y basis as export. Merely using a
+        // smaller font changes macOS glyph metrics. The frame stays screen-sized.
+        field.setBoundsSize(NSSize(
+            width: field.frame.width / draft.creationPixelSizeInCanvas.width,
+            height: field.frame.height / draft.creationPixelSizeInCanvas.height
+        ))
 
         activeTextField = field
         addSubview(field)
@@ -1748,9 +1807,18 @@ final class RegionCaptureOverlayView: NSView {
     private func renderedPNGForCopy() -> Data? {
         guard let capturedPNG = selectionState.capturedPNG else { return nil }
         guard let capturedImage = selectionState.capturedImage else { return capturedPNG }
+        guard let canvas = selectionState.annotationCanvas,
+              let capturedSelectionRect = selectionState.capturedSelectionRect else { return nil }
 
         do {
-            let data = try Renderer().renderPNG(baseImage: capturedImage, annotations: selectionState.annotations)
+            // A shortcut during a drag exports the last committed image/frame,
+            // never an old image with the live drag's coordinate mapping.
+            let data = try Renderer().renderPNG(
+                baseImage: capturedImage,
+                annotations: selectionState.annotations,
+                canvas: canvas,
+                selectionRect: capturedSelectionRect
+            )
             AppLogging.export.notice("PNG rendered id=\(self.selectionState.captureID, privacy: .public) pixels=\(capturedImage.width)x\(capturedImage.height) annotations=\(self.selectionState.annotations.count) bytes=\(data.count)")
             CaptureDiagnostics.log("export basePixels=\(capturedImage.width)x\(capturedImage.height) annotations=\(selectionState.annotations.count)", captureID: selectionState.captureID)
             CaptureDiagnostics.recordPNG(data, stage: "export", captureID: selectionState.captureID)
@@ -1776,7 +1844,7 @@ final class RegionCaptureOverlayView: NSView {
             && isMoveToolActive
             && activeAnnotationTool == nil
             && activeTextField == nil
-            && !selectionState.hasCommittedOrDraftAnnotations
+            && selectionState.draftAnnotation == nil
     }
 
     private var canReselectRegion: Bool {
@@ -1791,8 +1859,8 @@ final class RegionCaptureOverlayView: NSView {
             return nil
         }
 
-        let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
-        guard !localSelectionRect.isEmpty else { return nil }
+        let localSelectionRect = convertScreenRectToLocal(selectionRect)
+        guard bounds.contains(localPoint), localSelectionRect.intersects(bounds) else { return nil }
 
         return RegionSelectionResizeHandle.allCases.first { handle in
             resizeHandleHitRect(for: handle, in: localSelectionRect).contains(localPoint)
@@ -1962,9 +2030,10 @@ final class RegionCaptureOverlayView: NSView {
         }
     }
 
-    private func imagePointForAnnotationEvent(_ event: NSEvent) -> CGPoint? {
+    private func canvasPointForAnnotationEvent(_ event: NSEvent) -> CGPoint? {
         guard
-            let capturedImage = selectionState.capturedImage,
+            selectionState.capturedImage != nil,
+            let canvas = selectionState.annotationCanvas,
             let selectionRect = selectionState.selectionRect
         else {
             return nil
@@ -1977,23 +2046,20 @@ final class RegionCaptureOverlayView: NSView {
         let localPoint = convert(event.locationInWindow, from: nil)
         guard visibleSelectionRect.contains(localPoint) else { return nil }
 
-        let xRatio = (localPoint.x - localSelectionRect.minX) / localSelectionRect.width
-        let yRatio = (localSelectionRect.maxY - localPoint.y) / localSelectionRect.height
-        return CGPoint(
-            x: min(max(xRatio, 0), 1) * CGFloat(capturedImage.width),
-            y: min(max(yRatio, 0), 1) * CGFloat(capturedImage.height)
-        )
+        return canvas.point(fromScreen: screenPoint(for: event))
     }
 
     private func drawAnnotations(in localSelectionRect: NSRect) {
         guard
-            let capturedImage = selectionState.capturedImage,
+            let canvas = selectionState.annotationCanvas,
+            let selectionRect = selectionState.selectionRect,
             let context = NSGraphicsContext.current?.cgContext
         else { return }
 
         Renderer().drawAnnotations(
             selectionState.annotations + [selectionState.draftAnnotation].compactMap({ $0 }),
-            imageSize: CGSize(width: capturedImage.width, height: capturedImage.height),
+            canvas: canvas,
+            selectionRect: selectionRect,
             in: context,
             destinationRect: localSelectionRect
         )

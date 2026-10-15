@@ -34,7 +34,8 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 - `SaveConfirmationToastController`: shows the app-owned transient save confirmation with filename and Finder reveal action.
 - `ScreenCaptureKitScreenshotService`: captures full-display snapshots and validates ScreenCaptureKit region capture.
 - `RegionCaptureOverlayController`: owns AppKit overlay windows, frozen snapshot rendering, selection, annotation toolbar, keyboard handling, permission/save errors, and image export preparation.
-- `RegionSelectionState`: stores selected-region state, frozen-snapshot crop, vector annotations, drafts, undo, and image-space geometry.
+- `RegionSelectionState`: stores live selection bounds, the committed frozen-snapshot crop/frame, vector annotations, drafts, and annotation-only undo.
+- `AnnotationCanvas`: maps immutable session-wide, top-left screen-point coordinates into screen/selection-image frames. `Renderer` shares that mapping between preview and export.
 - `ClipboardService`: writes PNG data to `NSPasteboard`.
 - `SaveService`: writes PNG data to the configured local save folder.
 - `PreferencesStore`: stores save folder, default annotation color, default stroke width, whether save confirmations are shown, and whether the app's menu bar icon is shown.
@@ -73,7 +74,7 @@ Avoid account systems, upload flows, history managers, public distribution mecha
                  v
 +------------------------+
 | Region Selection State |
-| image-space vectors,   |
+| stable canvas vectors, |
 | drafts, undo           |
 +-----------+------------+
             |
@@ -107,6 +108,8 @@ Current behavior:
 - Visible selection rectangle during drag.
 - Mouse-up enters annotation mode on the same overlay surface.
 - Toolbar appears only after a valid region exists.
+- Move-tool edge/corner resizing remains available after annotations. Both resize and Move change only the selected bounds, leaving annotations anchored to frozen content.
+- Replacement selection remains unavailable while committed or draft annotations exist.
 - `Esc` cancels and closes without output.
 - Copy/save success closes all overlay windows.
 
@@ -138,10 +141,13 @@ Not MVP:
 Model behavior:
 
 - Annotation identity is stable at creation time.
-- Source-of-truth annotation coordinates are image-space.
+- Source-of-truth annotation geometry is in a stable, top-left canvas measured in screen points, based on the frozen snapshots' bounding frame. Resize and Move never rewrite annotation geometry.
+- Marks outside the selected bounds are clipped, not deleted; enlarging the selection or moving back reveals them.
+- Tool preference widths/font sizes remain pixel-valued and are converted to canvas units at creation. Existing marks retain screen-space size across output-density changes.
+- Preview uses the live selection frame, while export maps through the committed crop's pixel-aligned frame and actual X/Y pixel dimensions. All overlays use the same canvas; clipping to a display never changes that frame.
 - Text is click-to-place and editable before commit.
 - No hardcoded sample text is inserted in the current overlay flow.
-- Undo removes the active draft or latest committed annotation.
+- Undo removes the active draft or latest committed annotation, even when hidden. It never undoes resize or Move.
 
 ## Output Strategy
 
