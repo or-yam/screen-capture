@@ -14,6 +14,11 @@ APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 ZIP_NAME="$APP_NAME-$MARKETING_VERSION.zip"
 ZIP_PATH="$DIST_DIR/$ZIP_NAME"
 
+if [[ ! -f "$ROOT/Resources/AppIcon.icns" ]]; then
+  echo "ERROR: missing app icon. Run: bash Scripts/build_app_icon.sh" >&2
+  exit 1
+fi
+
 echo "Building $APP_NAME ($CONFIGURATION)"
 swift build -c "$CONFIGURATION" --package-path "$ROOT"
 
@@ -31,11 +36,7 @@ mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 cp "$BINARY_PATH" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 chmod 755 "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
-ICON_PLIST_ENTRY=""
-if [[ -f "$ROOT/Resources/AppIcon.icns" ]]; then
-  cp "$ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
-  ICON_PLIST_ENTRY='    <key>CFBundleIconFile</key><string>AppIcon</string>'
-fi
+cp "$ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -54,7 +55,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>$MACOS_MIN_VERSION</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
-$ICON_PLIST_ENTRY
+    <key>CFBundleIconFile</key><string>AppIcon</string>
 </dict>
 </plist>
 PLIST

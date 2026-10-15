@@ -45,6 +45,10 @@ if [[ "$BUILD" == 1 ]] && ! security find-identity -v -p codesigning | rg -F "\"
 fi
 
 if [[ "$BUILD" == 1 ]]; then
+    if [[ ! -f "$ROOT/Resources/AppIcon.icns" ]]; then
+        echo "Missing app icon. Run: bash Scripts/build_app_icon.sh" >&2
+        exit 1
+    fi
     swift build -c debug --package-path "$ROOT"
     BIN_DIR=$(swift build -c debug --package-path "$ROOT" --show-bin-path)
     # Only generated build-provenance copies, never repository sources or run evidence.
@@ -52,6 +56,7 @@ if [[ "$BUILD" == 1 ]]; then
     rm -rf "$BUILD_IDENTITY/source" "$BUILD_IDENTITY/scripts"
     mkdir -p "$APP/Contents/MacOS" "$BUILD_IDENTITY/source" "$BUILD_IDENTITY/scripts"
     cp "$BIN_DIR/ScreenCaptureAll" "$APP/Contents/MacOS/ScreenCaptureAll"
+    cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
     cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -59,6 +64,7 @@ if [[ "$BUILD" == 1 ]]; then
 <key>CFBundleExecutable</key><string>ScreenCaptureAll</string>
 <key>CFBundleIdentifier</key><string>com.oryam.ScreenCaptureAll.Diagnostics</string>
 <key>CFBundleName</key><string>ScreenCaptureAll Diagnostics</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
@@ -68,11 +74,14 @@ if [[ "$BUILD" == 1 ]]; then
 </dict></plist>
 PLIST
     git -C "$ROOT" rev-parse HEAD > "$BUILD_IDENTITY/source-revision.txt"
-    git -C "$ROOT" diff -- Sources Scripts > "$BUILD_IDENTITY/source-changes.patch"
+    git -C "$ROOT" diff -- Sources Scripts Resources > "$BUILD_IDENTITY/source-changes.patch"
     cp "$ROOT"/Sources/*.swift "$ROOT/Package.swift" "$BUILD_IDENTITY/source/"
     cp "$ROOT"/Scripts/*.sh "$BUILD_IDENTITY/scripts/"
+    cp "$ROOT"/Scripts/*.swift "$BUILD_IDENTITY/scripts/"
     date -u '+build_utc=%Y-%m-%dT%H:%M:%SZ' > "$BUILD_IDENTITY/build-info.txt"
     swift --version >> "$BUILD_IDENTITY/build-info.txt"
+    # Patch output is lossy for binary artwork, so pin the exact icon bytes too.
+    (cd "$ROOT" && shasum -a 256 Resources/*) >> "$BUILD_IDENTITY/build-info.txt"
     codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
 elif [[ ! -x "$APP/Contents/MacOS/ScreenCaptureAll" || ! -f "$BUILD_IDENTITY/build-info.txt" ]]; then
     echo "No diagnostic build with recorded provenance. Run without --no-build first." >&2

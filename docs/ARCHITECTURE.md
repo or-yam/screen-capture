@@ -28,6 +28,7 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 
 - `ScreenCaptureAllApp`: SwiftUI app entry point and accessory-app lifecycle.
 - `MenuBarController`: status item and menu actions for region capture, preferences, screenshot folder, and quit.
+- `BrandMark`: shared vector silhouette drawn as an `NSImage` template for the menu-bar status item and reused by `Scripts/generate_app_icon.swift` to render the app icon. Must stay self-contained; see the note in the source file.
 - `PreferencesWindowController`: retained AppKit settings window hosting the SwiftUI `PreferencesView` so Preferences opens reliably from an accessory menu-bar app.
 - `GlobalShortcutManager`: registers hardcoded `Cmd-Shift-S` with Carbon `RegisterEventHotKey`; Accessibility permission is not required for this path.
 - `CaptureCoordinator`: starts sessions, captures frozen display snapshots, wires overlay output to copy/save, and owns close-on-success behavior.

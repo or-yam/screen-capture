@@ -201,6 +201,12 @@ The package declares `.macOS("26.0")` in `Package.swift`, matching the Tahoe-nat
 
 `Scripts/package_app.sh` still uses ad-hoc signing; the stable certificate setup above applies to the diagnostic launcher only.
 
+### Icons
+
+The menu-bar icon uses the custom loop-and-dot vector in `Sources/BrandMark.swift`, with template rendering for light/dark menu bars and Retina displays. The app icon uses the same silhouette with a multicolor ribbon on a softly shaded tile. Both release and diagnostic apps bundle `Resources/AppIcon.icns`, containing native 16–1024 pixel representations.
+
+To edit the silhouette, update `Sources/BrandMark.swift`; app-only colors and shading live in `Scripts/generate_app_icon.swift`. Run `bash Scripts/build_app_icon.sh` and commit the regenerated `.icns` files. This produces light (`Resources/AppIcon.icns`) and dark (`Resources/AppIcon-Dark.icns`) artwork and local PNG previews under `.build/app-icon/`, including `Icon-kit-preview.png`. No Xcode or third-party image tools are required. The current packaging uses the light icon; the dark file is kept for future dark-appearance support and is not automatic appearance switching. Repackage the app to pick up icon changes; existing installed copies are not updated automatically.
+
 ## MVP Acceptance Status
 
 The current MVP is expected to satisfy:

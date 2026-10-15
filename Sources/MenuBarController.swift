@@ -29,7 +29,8 @@ final class MenuBarController: NSObject {
     }
 
     func install() {
-        statusItem.button?.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screen Capture All")
+        statusItem.button?.image = BrandMark.menuBarImage()
+        statusItem.button?.setAccessibilityLabel("Screen Capture All")
         installMenu()
         applyMenuBarIconVisibility()
     }

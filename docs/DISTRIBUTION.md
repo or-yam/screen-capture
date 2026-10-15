@@ -81,12 +81,15 @@ The script should:
 - Ad-hoc sign the app for personal use.
 - Zip the app bundle for GitHub Releases.
 
+Icon handling is mandatory: the script requires `Resources/AppIcon.icns`, copies it to `Contents/Resources/AppIcon.icns`, and sets `CFBundleIconFile` to `AppIcon`. Regenerate the asset first with `bash Scripts/build_app_icon.sh` if it is missing. `Resources/AppIcon-Dark.icns` is an alternative asset for future dark-appearance support; it is not copied and not automatic appearance switching.
+
 Use these app metadata values:
 
 - `CFBundleName`: `ScreenCaptureAll`
 - `CFBundleDisplayName`: `ScreenCaptureAll`
 - `CFBundleExecutable`: `ScreenCaptureAll`
 - `CFBundlePackageType`: `APPL`
+- `CFBundleIconFile`: `AppIcon`
 - `CFBundleIdentifier`: stable reverse-DNS ID, for example `com.oryam.ScreenCaptureAll`
 - `LSMinimumSystemVersion`: `26.0`
 - `LSUIElement`: `true`
