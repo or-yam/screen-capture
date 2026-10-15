@@ -1,7 +1,7 @@
 import AppKit
 
 @MainActor
-final class RegionCaptureOverlayController {
+final class RegionCaptureOverlayController: CaptureOverlay {
     var onCopy: ((Data) -> Void)?
     var onSave: ((Data) -> Void)?
 
@@ -1126,22 +1126,22 @@ final class RegionCaptureOverlayView: NSView {
 
         guard let selectionRect = selectionState.selectionRect, !selectionRect.isEmpty else { return }
 
-        let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
+        let fullLocalSelectionRect = convertScreenRectToLocal(selectionRect)
+        let localSelectionRect = fullLocalSelectionRect.intersection(bounds)
         guard !localSelectionRect.isEmpty else { return }
 
         NSGraphicsContext.saveGraphicsState()
         NSBezierPath(rect: localSelectionRect).addClip()
         if let capturedImage = selectionState.capturedImage, selectionMoveStartPoint == nil, selectionResizeHandle == nil {
-            NSImage(cgImage: capturedImage, size: localSelectionRect.size).draw(in: localSelectionRect)
+            NSImage(cgImage: capturedImage, size: fullLocalSelectionRect.size).draw(in: fullLocalSelectionRect)
         } else if drewFrozenBackground {
             drawFrozenSnapshots(in: localSelectionRect)
         } else {
             NSColor.clear.setFill()
             bounds.fill(using: .copy)
         }
+        drawAnnotations(in: fullLocalSelectionRect)
         NSGraphicsContext.restoreGraphicsState()
-
-        drawAnnotations(in: localSelectionRect)
 
         NSColor.white.setStroke()
         let borderPath = NSBezierPath(rect: localSelectionRect)
@@ -1688,7 +1688,8 @@ final class RegionCaptureOverlayView: NSView {
             return
         }
 
-        let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
+        let fullLocalSelectionRect = convertScreenRectToLocal(selectionRect)
+        let localSelectionRect = fullLocalSelectionRect.intersection(bounds)
         guard !localSelectionRect.isEmpty else { return }
 
         let field = AnnotationTextField(
@@ -1696,13 +1697,13 @@ final class RegionCaptureOverlayView: NSView {
             cancel: { [weak self] in self?.cancelActiveTextField() }
         )
         let localPoint = convert(event.locationInWindow, from: nil)
-        let fontSize = previewTextFontSize(for: capturedImage, in: localSelectionRect)
+        let fontSize = selectedTextFontSize * fullLocalSelectionRect.width / CGFloat(capturedImage.width)
         let fieldWidth = min(max(localSelectionRect.width - (localPoint.x - localSelectionRect.minX), 120), min(280, localSelectionRect.width))
         let fieldHeight = max(fontSize + 10, 32)
         let fieldX = min(localPoint.x, localSelectionRect.maxX - fieldWidth)
         let adjustedImagePoint = CGPoint(
-            x: (fieldX - localSelectionRect.minX) / localSelectionRect.width * CGFloat(capturedImage.width),
-            y: (localSelectionRect.maxY - localPoint.y) / localSelectionRect.height * CGFloat(capturedImage.height)
+            x: (fieldX - fullLocalSelectionRect.minX) / fullLocalSelectionRect.width * CGFloat(capturedImage.width),
+            y: (fullLocalSelectionRect.maxY - localPoint.y) / fullLocalSelectionRect.height * CGFloat(capturedImage.height)
         )
         selectionState.beginAnnotation(
             tool: .text,
@@ -1969,11 +1970,12 @@ final class RegionCaptureOverlayView: NSView {
             return nil
         }
 
-        let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
-        guard !localSelectionRect.isEmpty else { return nil }
+        let localSelectionRect = convertScreenRectToLocal(selectionRect)
+        let visibleSelectionRect = localSelectionRect.intersection(bounds)
+        guard !visibleSelectionRect.isEmpty else { return nil }
 
         let localPoint = convert(event.locationInWindow, from: nil)
-        guard localSelectionRect.contains(localPoint) else { return nil }
+        guard visibleSelectionRect.contains(localPoint) else { return nil }
 
         let xRatio = (localPoint.x - localSelectionRect.minX) / localSelectionRect.width
         let yRatio = (localSelectionRect.maxY - localPoint.y) / localSelectionRect.height
@@ -1984,113 +1986,17 @@ final class RegionCaptureOverlayView: NSView {
     }
 
     private func drawAnnotations(in localSelectionRect: NSRect) {
-        guard let capturedImage = selectionState.capturedImage else { return }
+        guard
+            let capturedImage = selectionState.capturedImage,
+            let context = NSGraphicsContext.current?.cgContext
+        else { return }
 
-        for annotation in selectionState.annotations + [selectionState.draftAnnotation].compactMap({ $0 }) {
-            if annotation.kind == .text {
-                drawTextAnnotation(annotation, in: localSelectionRect, image: capturedImage)
-                continue
-            }
-
-            let path = previewPath(for: annotation, in: localSelectionRect, image: capturedImage)
-            annotation.color.setStroke()
-            path.lineWidth = previewLineWidth(for: annotation, in: localSelectionRect, image: capturedImage)
-            path.lineCapStyle = annotation.kind == .rectangle ? .butt : .round
-            path.lineJoinStyle = .round
-            path.stroke()
-        }
-    }
-
-    private func previewPath(for annotation: OverlayAnnotation, in localSelectionRect: NSRect, image: CGImage) -> NSBezierPath {
-        if let rect = annotation.rectInImageSpace {
-            return NSBezierPath(rect: previewRect(for: rect, in: localSelectionRect, image: image))
-        }
-
-        let path = NSBezierPath()
-        let points = annotation.pointsInImageSpace.map { previewPoint(for: $0, in: localSelectionRect, image: image) }
-        guard let firstPoint = points.first else { return path }
-        if annotation.kind == .arrow, let endPoint = points.last {
-            appendArrow(from: firstPoint, to: endPoint, lineWidth: previewLineWidth(for: annotation, in: localSelectionRect, image: image), to: path)
-            return path
-        }
-
-        path.move(to: firstPoint)
-        for point in points.dropFirst() {
-            path.line(to: point)
-        }
-        return path
-    }
-
-    private func drawTextAnnotation(_ annotation: OverlayAnnotation, in localSelectionRect: NSRect, image: CGImage) {
-        guard let position = annotation.textPositionInImageSpace, !annotation.text.isEmpty else { return }
-
-        let point = previewPoint(for: position, in: localSelectionRect, image: image)
-        let fontSize = previewTextFontSize(for: annotation, in: localSelectionRect, image: image)
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize, weight: .semibold),
-            .foregroundColor: annotation.color
-        ]
-        annotation.text.draw(at: NSPoint(x: point.x, y: point.y - fontSize), withAttributes: attributes)
-    }
-
-    private func appendArrow(from startPoint: NSPoint, to endPoint: NSPoint, lineWidth: CGFloat, to path: NSBezierPath) {
-        path.move(to: startPoint)
-        path.line(to: endPoint)
-
-        let dx = endPoint.x - startPoint.x
-        let dy = endPoint.y - startPoint.y
-        guard hypot(dx, dy) >= 1 else { return }
-
-        let angle = atan2(dy, dx)
-        let headLength = max(lineWidth * 4, 10)
-        let headAngle = CGFloat.pi / 7
-        let firstHeadPoint = NSPoint(
-            x: endPoint.x - headLength * cos(angle - headAngle),
-            y: endPoint.y - headLength * sin(angle - headAngle)
+        Renderer().drawAnnotations(
+            selectionState.annotations + [selectionState.draftAnnotation].compactMap({ $0 }),
+            imageSize: CGSize(width: capturedImage.width, height: capturedImage.height),
+            in: context,
+            destinationRect: localSelectionRect
         )
-        let secondHeadPoint = NSPoint(
-            x: endPoint.x - headLength * cos(angle + headAngle),
-            y: endPoint.y - headLength * sin(angle + headAngle)
-        )
-
-        path.move(to: endPoint)
-        path.line(to: firstHeadPoint)
-        path.move(to: endPoint)
-        path.line(to: secondHeadPoint)
-    }
-
-    private func previewRect(for imageRect: CGRect, in localSelectionRect: NSRect, image: CGImage) -> NSRect {
-        let imageWidth = CGFloat(image.width)
-        let imageHeight = CGFloat(image.height)
-        return NSRect(
-            x: localSelectionRect.minX + imageRect.minX / imageWidth * localSelectionRect.width,
-            y: localSelectionRect.maxY - imageRect.maxY / imageHeight * localSelectionRect.height,
-            width: imageRect.width / imageWidth * localSelectionRect.width,
-            height: imageRect.height / imageHeight * localSelectionRect.height
-        )
-    }
-
-    private func previewPoint(for imagePoint: CGPoint, in localSelectionRect: NSRect, image: CGImage) -> NSPoint {
-        NSPoint(
-            x: localSelectionRect.minX + imagePoint.x / CGFloat(image.width) * localSelectionRect.width,
-            y: localSelectionRect.maxY - imagePoint.y / CGFloat(image.height) * localSelectionRect.height
-        )
-    }
-
-    private func previewLineWidth(for annotation: OverlayAnnotation, in localSelectionRect: NSRect, image: CGImage) -> CGFloat {
-        max(1, annotation.lineWidth * localSelectionRect.width / CGFloat(image.width))
-    }
-
-    private func previewTextFontSize(for annotation: OverlayAnnotation, in localSelectionRect: NSRect, image: CGImage) -> CGFloat {
-        previewTextFontSize(forImageFontSize: annotation.fontSize, image: image, in: localSelectionRect)
-    }
-
-    private func previewTextFontSize(for image: CGImage, in localSelectionRect: NSRect) -> CGFloat {
-        previewTextFontSize(forImageFontSize: selectedTextFontSize, image: image, in: localSelectionRect)
-    }
-
-    private func previewTextFontSize(forImageFontSize fontSize: CGFloat, image: CGImage, in localSelectionRect: NSRect) -> CGFloat {
-        max(12, fontSize * localSelectionRect.width / CGFloat(image.width))
     }
 
     private var selectedStrokeWidth: CGFloat {

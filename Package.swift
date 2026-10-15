@@ -14,6 +14,10 @@ let package = Package(
         .executableTarget(
             name: "ScreenCaptureAll",
             path: "Sources"
+        ),
+        .testTarget(
+            name: "ScreenCaptureAllTests",
+            dependencies: ["ScreenCaptureAll"]
         )
     ]
 )

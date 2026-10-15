@@ -2,16 +2,17 @@ import AppKit
 
 @MainActor
 final class CaptureCoordinator {
-    private let overlayController: RegionCaptureOverlayController
+    private let overlayController: CaptureOverlay
     private let screenshotService: ScreenshotCapturing
     private let clipboardService: ClipboardService
     private let saveService: SaveService
     private let saveConfirmationToastController: SaveConfirmationToastController
     private let preferences: PreferencesStore
+    private var isPreparingCapture = false
 
     init(
         preferences: PreferencesStore,
-        overlayController: RegionCaptureOverlayController? = nil,
+        overlayController: CaptureOverlay? = nil,
         screenshotService: ScreenshotCapturing = ScreenCaptureKitScreenshotService(),
         clipboardService: ClipboardService = ClipboardService(),
         saveService: SaveService,
@@ -32,12 +33,19 @@ final class CaptureCoordinator {
     }
 
     func startRegionCapture() {
+        guard !isPreparingCapture else {
+            AppLogging.capture.debug("Capture ignored while frozen snapshots are pending")
+            return
+        }
+        // Set before scheduling the task, including back-to-back shortcut events.
+        isPreparingCapture = true
         let captureID = UUID().uuidString
         AppLogging.capture.notice("Capture requested id=\(captureID, privacy: .public)")
         CaptureDiagnostics.log("capture requested", captureID: captureID)
         CaptureDiagnostics.recordEnvironment()
         Task { [weak self] in
             guard let self else { return }
+            defer { isPreparingCapture = false }
 
             do {
                 overlayController.cancel()

@@ -2,7 +2,7 @@
 
 ### Tests
 
-This project currently has no test suite. Do not treat `swift test` failing with `no tests found` as a regression.
+Run the Swift Testing suite with `swift test`. For the Command Line Tools `TestingMacros` discovery workaround and coverage limits, see [README.md](README.md#automated-tests).
 
 ### Issue tracker
 

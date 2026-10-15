@@ -243,9 +243,9 @@ private struct SaveFolderValidation {
         let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
 
         if !exists {
-            message = "Folder does not exist. Choose an existing folder before saving."
-            systemImage = "exclamationmark.triangle.fill"
-            style = AnyShapeStyle(.orange)
+            message = "Folder does not exist yet. Saving will try to create it."
+            systemImage = "folder.badge.plus"
+            style = AnyShapeStyle(.secondary)
             isRevealable = false
             return
         }

@@ -16,11 +16,13 @@ The MVP is region capture only. Window capture, full-screen capture, history, up
 - Exposes `Capture Region`, `Open Screenshot Folder`, `Preferences`, and `Quit` from the status menu. The Preferences entry point now opens a retained native settings window from the menu-bar accessory app.
 - Registers a hardcoded global shortcut: `Cmd-Shift-S`.
 - Starts each capture session by taking frozen ScreenCaptureKit snapshots of active displays.
+- Ignores repeated capture triggers while those snapshots are pending; a new capture can start once the overlay is ready or capture has failed.
 - Shows app-owned borderless AppKit overlay windows over active displays.
 - Lets the user drag a rectangular region, then keeps that region anchored for annotation.
 - Selections wholly inside one display are aligned outward to source pixels and cropped directly, without resampling. The anchored outline follows those pixel bounds; same-display moves snap to that pixel grid. Spanning selections use the existing compositor.
 - Shows the annotation toolbar only after a valid region exists.
 - Supports Arrow, Text, Rectangle, Draw, Highlight, Color, Stroke size, Undo, Copy, Save, and Close.
+- Uses shared image-space annotation drawing for preview and export; a display showing only part of the selection clips it without rescaling it.
 - Copies flattened annotated PNG data to `NSPasteboard`.
 - Saves flattened annotated PNG files to the configured screenshot folder.
 - Handles Screen Recording permission denial with a targeted alert and an Open System Settings action.
@@ -53,6 +55,21 @@ swift build
 ```
 
 For local capture debugging, use the signed debug bundle described below. `swift run ScreenCaptureAll` is available for quick experiments, but is not the recommended Retina/permissions QA path: use a real `.app` with its bundle identity and high-resolution configuration.
+
+### Automated Tests
+
+```sh
+swift test
+```
+
+The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, and offscreen AppKit preview/export annotation placement at 1×, 2×, and 5/3× density, including a partially visible selection. It uses synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, app windows, or system clipboard writes. It does not replace signed-app QA on real displays.
+
+Some Swift 6.4 Command Line Tools builds fail to discover the bundled `TestingMacros` plugin when compiling the test module. If `swift test` reports that exact missing-plugin error, explicitly load the selected toolchain's plugin:
+
+```sh
+plugin="$(dirname "$(xcrun --find swiftc)")/../lib/swift/host/plugins/testing/libTestingMacros.dylib"
+swift test -Xswiftc -load-plugin-library -Xswiftc "$plugin"
+```
 
 ### Local Development And Capture QA
 

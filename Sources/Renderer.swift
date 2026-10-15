@@ -26,12 +26,31 @@ final class Renderer {
         let imageRect = CGRect(x: 0, y: 0, width: width, height: height)
         context.draw(baseImage, in: imageRect)
 
-        for annotation in annotations {
-            draw(annotation, in: context, imageHeight: CGFloat(height))
-        }
+        drawAnnotations(annotations, imageSize: imageRect.size, in: context, destinationRect: imageRect)
 
         guard let outputImage = context.makeImage() else { throw RenderError.missingCGImage }
         return try PNGEncoder.encode(outputImage)
+    }
+
+    /// Preview and export use the same image-space drawing rules. Only the
+    /// destination changes; clipping must not change the image's coordinate frame.
+    func drawAnnotations(
+        _ annotations: [OverlayAnnotation],
+        imageSize: CGSize,
+        in context: CGContext,
+        destinationRect: CGRect
+    ) {
+        guard imageSize.width > 0, imageSize.height > 0, !destinationRect.isEmpty else { return }
+
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.clip(to: destinationRect)
+        context.translateBy(x: destinationRect.minX, y: destinationRect.minY)
+        context.scaleBy(x: destinationRect.width / imageSize.width, y: destinationRect.height / imageSize.height)
+
+        for annotation in annotations {
+            draw(annotation, in: context, imageHeight: imageSize.height)
+        }
     }
 
     private func draw(_ annotation: OverlayAnnotation, in context: CGContext, imageHeight: CGFloat) {
