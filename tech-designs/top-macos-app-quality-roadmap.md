@@ -49,7 +49,7 @@ Required changes:
 - Improve onboarding and permission/error states around Screen Recording, save folder access, and shortcut availability.
 - Add automated tests around non-UI seams and enough app-shell coverage to prevent regressions like a dead config menu.
 - Expand manual QA into a repeatable release checklist.
-- Move distribution from personal ZIP-only assumptions toward signed/notarized direct-download readiness.
+- Move distribution from personal ZIP-only assumptions to CI-published DMG + ZIP releases for friend testing, then toward signed/notarized direct-download readiness.
 - Use available agent skills during implementation: bug-fixing/diagnose for regressions, tdd for test work, improve-codebase-architecture for seam review, tech-design/to-issues for planning updates, and agent-browser only where browser-accessible release/docs surfaces need validation.
 
 Proposed quality architecture:
@@ -117,7 +117,7 @@ Distribution should progress from personal bundle to credible direct download:
 - Stable bundle identifier and app identity.
 - Repeatable app bundle generation.
 - Developer ID signing and notarization readiness.
-- ZIP-only release artifacts unless the distribution decision is explicitly reopened.
+- DMG (drag-install) plus ZIP release artifacts, published by CI on version tags; see [docs/DISTRIBUTION.md](../docs/DISTRIBUTION.md).
 - Release checklist that covers permissions, first launch, upgrades, and quarantine/Gatekeeper behavior.
 
 ### Alternatives Considered

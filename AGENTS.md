@@ -20,6 +20,13 @@ This repo uses a single-context domain docs layout. See `docs/agents/domain.md`.
 
 For selection, annotation, Move/resize, or multi-display work, read [NEW_PRD.md — One Screen per Capture Session](NEW_PRD.md#one-screen-per-capture-session). This requirement supersedes older spanning-capture plans. Implementation is on `feat/annotation-overflow-selection`; signed-app manual QA is pending.
 
+### Releases
+
+- Version lives in [VERSION](VERSION); `Scripts/package_app.sh` reads it and CI rejects a `v*` tag that disagrees with it. Bump the file and tag the commit to release.
+- Releases are published by [.github/workflows/build.yml](.github/workflows/build.yml) as a universal DMG + ZIP with SHA-256 checksums. Do not hand-upload assets.
+- Builds are ad-hoc signed and not notarized. Do not claim a download opens without the Gatekeeper override; see [docs/INSTALL.md](docs/INSTALL.md).
+- Keep the bundle identifier and app path stable across releases, or testers must re-approve Screen Recording.
+
 ### Local debugging and QA
 
 - For capture/Retina/permissions QA, use the source-built diagnostic `.app`, not bare `swift run`. See [README.md](README.md#local-development-and-capture-qa).
