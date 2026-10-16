@@ -40,6 +40,7 @@ struct DisplayGeometry {
     var frameInDisplaySpace: CGRect
     var frameInAppKitScreenSpace: CGRect
     var backingScaleFactor: CGFloat
+    var id: CGDirectDisplayID? = nil
 
     static func currentDisplays() -> [DisplayGeometry] {
         let screens = NSScreen.screens
@@ -56,7 +57,8 @@ struct DisplayGeometry {
                     height: appKitFrame.height
                 ),
                 frameInAppKitScreenSpace: appKitFrame,
-                backingScaleFactor: screen.backingScaleFactor
+                backingScaleFactor: screen.backingScaleFactor,
+                id: (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
             )
         }
     }

@@ -6,6 +6,18 @@ Build a fast, simple, reliable, and customizable macOS screenshot utility for ca
 
 The product should feel similar to Lightshot in speed and simplicity, but should be built primarily on native macOS capabilities and APIs. The app should avoid the current built-in macOS workflow of “take screenshot → open editor → annotate → save/copy” and replace it with a single continuous flow.
 
+### One Screen per Capture Session
+
+Product rule clarified on 2026-10-16; implemented on `feat/annotation-overflow-selection`, with signed-app manual QA pending. This rule overrides references elsewhere to captures spanning multiple displays.
+
+* The screen where the initial region selection starts is the **capture display** for that session.
+* Initial selection, replacement selection, capture-frame Move/resize, annotation creation, and annotation movement stay on the capture display. Dragging to another screen stops at the capture display's edge; returning the pointer continues the same gesture without a jump.
+* Once chosen, the capture display stays fixed until the session ends. Clicking another screen does not switch displays or start a replacement capture there, even when no annotations exist.
+* Annotations may extend outside the capture frame, but their visible content stays on the capture display. Text is clipped at the screen edge without wrapping, shrinking, or moving its anchor.
+* Copy/Save includes only content inside both the capture frame and capture display. No hidden annotation content from another screen may appear in output.
+* To capture another screen, exit the current capture, reopen capture, and mark a region on that screen.
+* Supporting multiple displays means users can choose any display for a new session, not combine displays in one capture.
+
 ## 2. Product Goals
 
 ### Primary Goals
@@ -170,7 +182,7 @@ The user can press `Esc` at any point before final output to cancel and close th
 ### Required
 
 * Capture selected rectangular region.
-* Support multi-display capture.
+* Support choosing any display for a new capture session; each session remains confined to that display.
 * Support Retina scaling correctly.
 * Support output as PNG.
 * Support copy to clipboard.

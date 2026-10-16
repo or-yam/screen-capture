@@ -195,7 +195,7 @@ struct RendererTests {
     }
 
     @Test(arguments: OverlayAnnotationTool.allCases)
-    func clippingAndMovingAwayRevealOriginalMarksWhenBoundsReturn(tool: OverlayAnnotationTool) throws {
+    func frameChangesKeepOverflowVisibleButClipExportAndRevealOriginalPixels(tool: OverlayAnnotationTool) throws {
         let state = try selection(image: whiteImage(width: 500, height: 260), frame: CGRect(x: 0, y: 0, width: 500, height: 260))
         let original = CGRect(x: 40, y: 40, width: 180, height: 160)
         try state.setCapturedImageFromFrozenSnapshots(for: original)
@@ -208,14 +208,15 @@ struct RendererTests {
         let partialPreview = try drawOverlay(state, pointSize: CGSize(width: 500, height: 260), pixelWidth: 500, pixelHeight: 260)
         let partialInkCount = try redInkMask(pixels(partialPreview)).filter { $0 }.count
         #expect(partialInkCount > 0)
-        #expect(partialInkCount < originalInkCount)
+        let outsideFrame = try #require(partialPreview.cropping(to: CGRect(x: 114, y: 56, width: 50, height: 100)))
+        #expect(try redInkMask(pixels(outsideFrame)).contains(true))
         try state.setCapturedImageFromFrozenSnapshots(for: try #require(state.selectionRect))
         #expect(try redInkMask(pixels(export(state))).contains(true))
 
         try state.setCapturedImageFromFrozenSnapshots(for: original)
         state.resizeAnchoredSelection(from: original, dragging: .left, to: CGPoint(x: 170, y: 120))
         let hiddenPreview = try drawOverlay(state, pointSize: CGSize(width: 500, height: 260), pixelWidth: 500, pixelHeight: 260)
-        #expect(try !redInkMask(pixels(hiddenPreview)).contains(true))
+        #expect(try redInkMask(pixels(hiddenPreview)).contains(true))
         try state.setCapturedImageFromFrozenSnapshots(for: try #require(state.selectionRect))
         #expect(try !redInkMask(pixels(export(state))).contains(true))
         #expect(state.annotations.count == 1)
@@ -225,7 +226,7 @@ struct RendererTests {
         #expect(try pixels(export(state)) == pixels(initialExport))
         state.moveAnchoredSelection(from: original, by: CGSize(width: 240, height: 0))
         let awayPreview = try drawOverlay(state, pointSize: CGSize(width: 500, height: 260), pixelWidth: 500, pixelHeight: 260)
-        #expect(try !redInkMask(pixels(awayPreview)).contains(true))
+        #expect(try redInkMask(pixels(awayPreview)).contains(true))
         try state.setCapturedImageFromFrozenSnapshots(for: try #require(state.selectionRect))
         #expect(try !redInkMask(pixels(export(state))).contains(true))
         state.moveAnchoredSelection(from: try #require(state.selectionRect), by: CGSize(width: -240, height: 0))
@@ -237,6 +238,110 @@ struct RendererTests {
     // mixedDensityCommitPreservesOldSizesAndConvertsNewPixelToolSettings and
     // AnnotationDensityTests. Cross-display spanning resize is intentionally
     // blocked; see resizeCannotCrossDisplayBoundaries.
+
+    @Test(arguments: OverlayAnnotationTool.allCases, AnnotationDensityTests.densities)
+    func draftAndCommittedOverflowStayOnDisplayAndExportKeepsCaptureSize(
+        tool: OverlayAnnotationTool, density: AnnotationDensityTests.Density
+    ) throws {
+        let width = Int((300 * density.x).rounded())
+        let height = Int((260 * density.y).rounded())
+        let state = try selection(image: whiteImage(width: width, height: height), frame: CGRect(x: 0, y: 0, width: 300, height: 260))
+        try state.setCapturedImageFromFrozenSnapshots(for: CGRect(x: 40, y: 40, width: 180, height: 160))
+        let originalImage = try #require(state.capturedImage)
+        try addScreenAnnotation(tool, to: state, start: CGPoint(x: 180, y: 150), end: CGPoint(x: 260, y: 120))
+        let committed = try #require(state.annotations.last)
+        state.undoLastAnnotation()
+        let canvas = try #require(state.annotationCanvas)
+        state.beginAnnotation(tool: tool, at: canvas.point(fromScreen: CGPoint(x: 180, y: 150)), color: .red, lineWidth: 2, fontSize: 28)
+        if tool == .text {
+            state.updateDraftText("Wide annotation beyond capture and display\nSecond line")
+        } else {
+            state.updateAnnotation(to: canvas.point(fromScreen: CGPoint(x: 260, y: 120)))
+        }
+        let draftPreview = try drawOverlay(state, pointSize: CGSize(width: 600, height: 260), pixelWidth: 600, pixelHeight: 260)
+        let overflow = CGRect(x: 226, y: 60, width: 74, height: 140)
+        #expect(try redInkMask(pixels(#require(draftPreview.cropping(to: overflow)))).contains(true))
+        #expect(try !redInkMask(pixels(#require(draftPreview.cropping(to: CGRect(x: 302, y: 0, width: 298, height: 260))))).contains(true))
+        #expect(try pixels(export(state)) == pixels(originalImage))
+        if tool == .text { state.commitDraftText() } else { state.commitAnnotation() }
+        let preview = try drawOverlay(state, pointSize: CGSize(width: 600, height: 260), pixelWidth: 600, pixelHeight: 260)
+        #expect(try redInkMask(pixels(#require(preview.cropping(to: overflow)))).contains(true))
+        #expect(try !redInkMask(pixels(#require(preview.cropping(to: CGRect(x: 302, y: 0, width: 298, height: 260))))).contains(true))
+        let output = try export(state)
+        #expect(output.width == originalImage.width)
+        #expect(output.height == originalImage.height)
+        #expect(state.annotations.last?.displayFrameInAppKitScreenSpace == committed.displayFrameInAppKitScreenSpace)
+    }
+
+    @Test(arguments: OverlayAnnotationTool.allCases)
+    func translatedPreviewAndCommittedExportAlignAndUndoRestoresPixels(tool: OverlayAnnotationTool) throws {
+        let state = try selection(image: whiteImage(width: 300, height: 260), frame: CGRect(x: 0, y: 0, width: 300, height: 260))
+        try state.setCapturedImageFromFrozenSnapshots(for: CGRect(x: 40, y: 40, width: 180, height: 160))
+        try addScreenAnnotation(tool, to: state)
+        let original = try export(state)
+        let canvas = try #require(state.annotationCanvas)
+        let grab = canvas.point(fromScreen: CGPoint(x: 100, y: tool == .text ? 144 : 150))
+        state.beginAnnotationMove(at: grab)
+        try #require(state.annotationMoveIsActive)
+        state.updateAnnotationMove(to: CGPoint(x: grab.x + 20, y: grab.y + 10))
+        let preview = try screenPreview(state)
+        try expectInkAtScreenLocation(preview, selectionRect: CGRect(x: 0, y: 0, width: 300, height: 260), expected: CGRect(x: 114, y: 102, width: 64, height: 46))
+        #expect(try pixels(export(state)) == pixels(original))
+        state.commitAnnotationMove()
+        let output = try export(state)
+        let previewContent = try #require(preview.cropping(to: CGRect(x: 44, y: 64, width: 172, height: 152)))
+        let exportContent = try #require(output.cropping(to: CGRect(x: 4, y: 4, width: 172, height: 152)))
+        try expectMatchingAnnotationFootprint(previewContent, exportContent)
+        #expect(try pixels(output) != pixels(original))
+        state.undoLastAnnotation()
+        #expect(try pixels(export(state)) == pixels(original))
+    }
+
+    @Test
+    func selectionOutlineIsVisibleInPreviewButItsPixelsAreWhiteInExport() throws {
+        let state = try selection(image: whiteImage(width: 300, height: 260), frame: CGRect(x: 0, y: 0, width: 300, height: 260))
+        try state.setCapturedImageFromFrozenSnapshots(for: CGRect(x: 40, y: 40, width: 180, height: 160))
+        try addScreenAnnotation(.rectangle, to: state)
+        state.interactionMode = .selectAnnotations
+        let canvas = try #require(state.annotationCanvas)
+        state.selectAnnotation(at: canvas.point(fromScreen: CGPoint(x: 100, y: 135)))
+        try #require(state.selectedAnnotationID != nil)
+        let preview = try screenPreview(state)
+        let output = try export(state)
+        // Independent screen geometry: the 2-point rectangle has left ink at
+        // x=99. Its padded selection outline lies at x=96, y=116...154.
+        // This strip catches that outline but none of the annotation's ink.
+        let previewStrip = try #require(preview.cropping(to: CGRect(x: 95, y: 120, width: 3, height: 20)))
+        let outputStrip = try #require(output.cropping(to: CGRect(x: 55, y: 60, width: 3, height: 20)))
+        #expect(try pixels(previewStrip).contains { $0 < 240 })
+        #expect(try pixels(outputStrip).allSatisfy { $0 == 255 })
+        #expect(output.width == 180)
+        #expect(output.height == 160)
+    }
+
+    @Test
+    func hiddenTextBeyondOwnerDisplayNeverAppearsInOutput() throws {
+        let frame = CGRect(x: -50, y: -100, width: 100, height: 200)
+        let canvas = AnnotationCanvas(frameInAppKitScreenSpace: frame)
+        let fullString = String(repeating: "W", count: 40) + "\nSecond line"
+        let text = OverlayAnnotation(kind: .text, text: fullString,
+            textPositionInCanvas: CGPoint(x: 40, y: 150), color: .red, fontSize: 18,
+            displayID: 7, displayFrameInAppKitScreenSpace: CGRect(x: -50, y: -100, width: 50, height: 100))
+        // Deliberately supply a larger destination than the allowed screen to
+        // exercise renderer confinement independently of model frame clamping.
+        let data = try Renderer().renderPNG(baseImage: whiteImage(width: 100, height: 200), annotations: [text], canvas: canvas, selectionRect: frame)
+        let decoder = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        let output = try #require(CGImageSourceCreateImageAtIndex(decoder, 0, nil))
+        let mask = try redInkMask(pixels(output))
+        #expect(mask.contains(true))
+        for (index, painted) in mask.enumerated() where painted {
+            #expect(index % 100 < 50)
+            #expect(index / 100 >= 100)
+        }
+        #expect(text.text == fullString)
+        #expect(output.width == 100)
+        #expect(output.height == 200)
+    }
 
     @Test
     func annotationsAreClippedToDestinationNotCallerCanvas() throws {

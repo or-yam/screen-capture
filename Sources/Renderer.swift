@@ -45,12 +45,19 @@ final class Renderer {
 
     /// Preview and export share a stable screen-point canvas. Clipping must not
     /// change either the selection frame or the full destination frame.
+    ///
+    /// `previewClip`, in destination/context coordinates, replaces the
+    /// `destinationRect` clip for overflow preview while the selection-to-
+    /// destination transform is preserved. The PNG renderer leaves it `nil` so
+    /// export stays clipped to the capture frame. Independently, each annotation
+    /// is always confined to its owning display when it declares one.
     func drawAnnotations(
         _ annotations: [OverlayAnnotation],
         canvas: AnnotationCanvas,
         selectionRect: CGRect,
         in context: CGContext,
-        destinationRect: CGRect
+        destinationRect: CGRect,
+        previewClip: CGRect? = nil
     ) {
         guard let transform = canvas.transform(selectionRect: selectionRect, destinationRect: destinationRect) else {
             return
@@ -58,7 +65,7 @@ final class Renderer {
 
         context.saveGState()
         defer { context.restoreGState() }
-        context.clip(to: destinationRect)
+        context.clip(to: previewClip ?? destinationRect)
         context.concatenate(transform)
         // Draw in a bottom-left version of the entire canvas so AppKit text
         // remains upright. Geometry is flipped below, not relative to the crop.
@@ -67,8 +74,25 @@ final class Renderer {
         context.scaleBy(x: 1, y: -1)
 
         for annotation in annotations {
+            context.saveGState()
+            // Geometry is now in the bottom-left canvas used by draw().
+            // Flip the owner clip too; vertically arranged screens otherwise
+            // clip ink on the wrong half of the shared canvas.
+            if let ownerClip = ownerClipInCanvas(of: annotation, canvas: canvas) {
+                context.clip(to: ownerClip)
+            }
             draw(annotation, in: context, canvasHeight: canvasHeight)
+            context.restoreGState()
         }
+    }
+
+    /// The owner display frame converted to bottom-left canvas coordinates, or `nil`
+    /// for legacy annotations that predate per-annotation display identity.
+    private func ownerClipInCanvas(of annotation: OverlayAnnotation, canvas: AnnotationCanvas) -> CGRect? {
+        guard let frame = annotation.displayFrameInAppKitScreenSpace else { return nil }
+        let topLeft = canvas.rect(fromScreen: frame)
+        return CGRect(x: topLeft.minX, y: canvas.frameInAppKitScreenSpace.height - topLeft.maxY,
+                      width: topLeft.width, height: topLeft.height)
     }
 
     private func draw(_ annotation: OverlayAnnotation, in context: CGContext, canvasHeight: CGFloat) {
@@ -79,7 +103,7 @@ final class Renderer {
 
         // Stroke in the creation-time pixel basis, compensating the path so its
         // canvas position stays fixed. This preserves even anisotropic brushes.
-        let verticalScale = annotation.creationPixelSizeInCanvas.height / annotation.creationPixelSizeInCanvas.width
+        let verticalScale = AnnotationGeometry.verticalScale(for: annotation)
         context.saveGState()
         defer { context.restoreGState() }
         context.scaleBy(x: 1, y: verticalScale)
@@ -122,27 +146,12 @@ final class Renderer {
         context.move(to: start)
         context.addLine(to: end)
 
-        let dx = end.x - start.x
-        let dy = end.y - start.y
-        // The legacy head appeared at one image pixel of shaft length. Its
-        // ten-pixel minimum is converted at creation, so retain that ratio in
-        // canvas units rather than introducing a one-screen-point threshold.
-        if hypot(dx, dy) >= annotation.minimumArrowheadLength / 10 {
-            let angle = atan2(dy, dx)
-            let headLength = max(annotation.lineWidth * 4, annotation.minimumArrowheadLength)
-            let headAngle = CGFloat.pi / 7
-            let firstHeadPoint = CGPoint(
-                x: end.x - headLength * cos(angle - headAngle),
-                y: end.y - headLength * sin(angle - headAngle)
-            )
-            let secondHeadPoint = CGPoint(
-                x: end.x - headLength * cos(angle + headAngle),
-                y: end.y - headLength * sin(angle + headAngle)
-            )
+        // The head is defined once in AnnotationGeometry so painted bounds,
+        // hit testing, and drawing cannot drift apart. `flip` maps the shared
+        // canvas-space wings back into this stroke space.
+        for headPoint in AnnotationGeometry.arrowheadPointsInCanvas(for: annotation) {
             context.move(to: end)
-            context.addLine(to: firstHeadPoint)
-            context.move(to: end)
-            context.addLine(to: secondHeadPoint)
+            context.addLine(to: flip(headPoint, canvasHeight: canvasHeight, verticalScale: verticalScale))
         }
 
         context.strokePath()

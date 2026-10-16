@@ -164,10 +164,10 @@ struct RegionSelectionStateTests {
             try snapshot(frame: CGRect(x: -240, y: 0, width: 240, height: 180), density: 1),
             try snapshot(frame: CGRect(x: 0, y: 0, width: 240, height: 180), density: density)
         ])
-        // Start near the right edge of the left display and grow within it.
+        // Start inside the selected region; only a new mark's start is gated.
         try state.setCapturedImageFromFrozenSnapshots(for: CGRect(x: -220, y: 20, width: 20, height: 120))
         for tool in OverlayAnnotationTool.allCases {
-            try addAnnotation(tool, to: state, start: CGPoint(x: -180, y: 100), end: CGPoint(x: -130, y: 70))
+            try addAnnotation(tool, to: state, start: CGPoint(x: -210, y: 100), end: CGPoint(x: -130, y: 70))
         }
         let oldMarks = state.annotations
         let original = try #require(state.selectionRect)
@@ -184,7 +184,7 @@ struct RegionSelectionStateTests {
         let scaleX = CGFloat(image.width) / frame.width
         let scaleY = CGFloat(image.height) / frame.height
         for tool in OverlayAnnotationTool.allCases {
-            try addAnnotation(tool, to: state, start: CGPoint(x: -180, y: 100), end: CGPoint(x: -130, y: 70))
+            try addAnnotation(tool, to: state, start: CGPoint(x: -210, y: 100), end: CGPoint(x: -130, y: 70))
             let mark = try #require(state.annotations.last)
             if tool == .text {
                 #expect(abs(mark.fontSize - 18 / scaleY) < 0.000001)
@@ -282,20 +282,22 @@ struct RegionSelectionStateTests {
         state.updateDraftText("  Aa\nBb\n\nCc\n")
         #expect(state.draftAnnotation?.textPositionInCanvas == CGPoint(x: 180, y: 190))
         state.commitDraftText()
-        #expect(state.annotations.last?.text == "Aa\nBb\n\nCc")
+        // The full string, including leading/trailing whitespace and blank
+        // lines, is retained; whitespace only decided that it was non-empty.
+        #expect(state.annotations.last?.text == "  Aa\nBb\n\nCc\n")
         #expect(state.draftAnnotation == nil)
-        state.beginAnnotation(tool: .text, at: .zero, color: .red, lineWidth: 4)
+        state.beginAnnotation(tool: .text, at: canvas.point(fromScreen: CGPoint(x: 60, y: 110)), color: .red, lineWidth: 4)
         state.updateDraftText("discard")
         state.undoLastAnnotation()
         #expect(state.draftAnnotation == nil)
         #expect(state.annotations.count == 2)
         #expect(state.selectionRect == frame)
-        state.beginAnnotation(tool: .text, at: .zero, color: .red, lineWidth: 4)
+        state.beginAnnotation(tool: .text, at: canvas.point(fromScreen: CGPoint(x: 60, y: 110)), color: .red, lineWidth: 4)
         state.updateDraftText(" \n ")
         state.commitDraftText()
         #expect(state.annotations.count == 2)
         #expect(state.draftAnnotation == nil)
-        state.beginAnnotation(tool: .draw, at: .zero, color: .red, lineWidth: 4)
+        state.beginAnnotation(tool: .draw, at: canvas.point(fromScreen: CGPoint(x: 60, y: 110)), color: .red, lineWidth: 4)
         state.reset()
         #expect(state.annotationCanvas == nil)
         #expect(state.capturedSelectionRect == nil)
@@ -381,6 +383,8 @@ struct RegionSelectionStateTests {
         #expect(actual.fontSize == expected.fontSize)
         #expect(actual.minimumArrowheadLength == expected.minimumArrowheadLength)
         #expect(actual.creationPixelSizeInCanvas == expected.creationPixelSizeInCanvas)
+        #expect(actual.displayID == expected.displayID)
+        #expect(actual.displayFrameInAppKitScreenSpace == expected.displayFrameInAppKitScreenSpace)
     }
 
     private func resizePoint(_ rect: CGRect, handle: RegionSelectionResizeHandle) -> CGPoint {

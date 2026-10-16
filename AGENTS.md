@@ -16,6 +16,10 @@ Triage uses the default five-role vocabulary. See `docs/agents/triage-labels.md`
 
 This repo uses a single-context domain docs layout. See `docs/agents/domain.md`.
 
+### Capture display rule
+
+For selection, annotation, Move/resize, or multi-display work, read [NEW_PRD.md — One Screen per Capture Session](NEW_PRD.md#one-screen-per-capture-session). This requirement supersedes older spanning-capture plans. Implementation is on `feat/annotation-overflow-selection`; signed-app manual QA is pending.
+
 ### Local debugging and QA
 
 - For capture/Retina/permissions QA, use the source-built diagnostic `.app`, not bare `swift run`. See [README.md](README.md#local-development-and-capture-qa).
@@ -43,6 +47,6 @@ This repo uses a single-context domain docs layout. See `docs/agents/domain.md`.
 
 - Do not claim evidence collection succeeded merely because capture worked. Check for fresh events and PNG artifacts in the configured directory. Diagnostics are opt-in and debug-only. Screenshots can contain private content; use non-sensitive QA content, keep artifacts local, and never commit screenshots or private keys.
 - Manual capture QA needs Screen Recording, **not Accessibility**. Desktop automation is optional and needs Accessibility for the automation host; AppleScript UI automation may additionally need Automation access to System Events. Ask before enabling either; they are not new app-runtime requirements.
-- Quality QA: select sharp text without annotations, compare before/after release, then Cmd-C/Cmd-S. Inspect snapshot dimensions/effective X/Y scale → direct source crop → composite crop → export at 100% zoom. Check pixel dimensions and bytes, not just viewer appearance. Repeat per display in extended mode, then with annotations and spanning selections as relevant. Laptop-only success does not validate an extended-display issue.
+- Quality QA: select sharp text without annotations, compare before/after release, then Cmd-C/Cmd-S. Inspect snapshot dimensions/effective X/Y scale → direct source crop → composite crop → export at 100% zoom. Check pixel dimensions and bytes, not just viewer appearance. Repeat in a new session per display in extended mode, then with annotations and attempted screen-edge crossings. Verify selection, Move/resize, and annotations stay on the capture display. Laptop-only success does not validate an extended-display issue.
 - Freeze QA: record affected display, initial selection versus handle resizing, whether selection crosses displays, and Esc behavior. Sample during the stuck interaction; request header/call graph, not the full Binary Images list. An idle AppKit event loop is not evidence of a deadlock. Diagnostics record sampled drag events but image writes add start/release overhead; do not treat those timings as production performance measurements.
 - Record observations, build identity, and unconfirmed hypotheses separately in the local issues. A standalone synthetic crop probe and the current investigation notes live in `.scratch/extended-display-capture/qa/`; they are not a project test suite.

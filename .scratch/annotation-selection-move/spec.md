@@ -1,25 +1,26 @@
 # Select and Move Existing Annotations
 
-Status: planned; not implemented
+Status: implemented on `feat/annotation-overflow-selection`; automated verification and signed-app manual QA tracked in [the QA notes](qa/README.md)
 Depends on: [Annotation Overflow](../annotation-overflow/spec.md)
 
 ## Outcome
 
 Add a dedicated **Select Annotations** toolbar button so an existing text, arrow, rectangle, drawing, or highlight can be picked and dragged without moving the capture frame.
 
-Implement on a new feature branch after the overflow feature. Neither follow-up is implemented by the text-annotation UX branch.
+Implemented with overflow on the owner-requested new branch `feat/annotation-overflow-selection`, superseding the earlier separate-branch plan. Neither follow-up belongs to the text-annotation UX branch.
 
 ## Agreed interaction
 
+- Follow the app-wide [one-screen-per-session rule](../../NEW_PRD.md#one-screen-per-capture-session), enforced by the overflow prerequisite. All annotation work and capture-frame Move/resize stay on the fixed capture display. To capture another screen, exit and start a new capture there.
 - Use a **pointer-arrow icon**, SF Symbol `cursorarrow`, for the new button. It must look distinct from the existing `arrow.up.right` annotation-drawing icon.
 - Accessibility label: `Select Annotations`. Tooltip: `Select and move annotations`.
 - Keep the existing hand-icon **Move** tool for moving/resizing the capture frame. Clarify its tooltip as `Move capture frame`; do not repurpose it to move annotations.
 - In Select Annotations mode, click a visible annotation to select it and show a thin bounding outline. No resize handles.
 - Drag the selected item from its visible hit area; preserve the initial pointer offset to avoid snapping its origin to the pointer.
 - If visible items overlap, pick the topmost hit item (reverse paint order). Do not reorder it when selected/moved.
-- Selection and dragging work on annotation portions outside the capture frame, anywhere on their originating display. Empty-space clicks deselect without moving/reselecting the capture frame.
+- Selection and dragging work on annotation portions outside the capture frame, anywhere on the capture display. Empty-space clicks there deselect without moving/reselecting the capture frame. Clicks on another screen cannot select, move, or create content or switch the capture display.
 - A move is translation only. Preserve identity, style, font, text, line breaks, creation-time X/Y basis, and stacking order.
-- Dragging stays on the originating display; never transfer an item across a display seam.
+- Dragging stays on the capture display; never transfer an item across a display seam. Every item's originating display is the session's capture display.
 - Esc clears selection and returns to the hand-icon Move tool. During an unfinished drag, revert that drag first, then exit; a later Esc in Move closes the capture.
 - One completed, non-zero drag is one undoable action. Undoing a move restores position; it does not delete the annotation.
 
@@ -30,6 +31,7 @@ Implement on a new feature branch after the overflow feature. Neither follow-up 
 - Clip hit testing to the originating display. Invisible portions on another screen must not be selectable there.
 - Show selection bounds around the item but clip the selection outline to its display. Selection UI is never part of Copy/Save.
 - Clamp the translation using painted bounds (stroke extent and arrowheads included), not only the pointer. Normally the whole item's painted bounds must stay within its display.
+- Content already clipped at a screen edge must not snap inward on the first drag. Preserve the grab offset, block movement that increases that existing overflow, and allow moving it back onto the screen. Visible ink remains clipped to the capture display throughout.
 - Oversized text/content cannot always fit. On an oversized axis, preserve the content and clamp its anchor within the display, clipping the excess; do not shrink, wrap, or make the item immovable. Record this exception in QA.
 
 ## Implementation plan
@@ -48,7 +50,7 @@ The state/geometry interfaces are the test surface. Do not add a general-purpose
 
 - Parameterize every annotation kind: hit, select, translate, and undo. Assert ID, content/style, creation basis, and stacking order stay unchanged.
 - Hit tests: overlapping items choose topmost; rectangle interior misses; thin strokes and arrowheads hit; multiline text and blank-line spacing behave consistently; empty space deselects.
-- Verify bounds/hits in negative-coordinate, uniform/fractional/independent X/Y density, and multi-display layouts. Screen-point hit tolerance must not shrink on Retina.
+- Verify bounds/hits in negative-coordinate, uniform/fractional/independent X/Y density, and multi-display layouts, using a separate session for each capture display. Screen-point hit tolerance must not shrink on Retina. Other display overlays cannot select or move items or change the capture display.
 - Drag preserves initial pointer offset; many incremental updates equal one final translation from the original; no-op drags create no Undo entry.
 - Clamp all four display edges, including painted stroke extents, oversized text, and attempted seam crossing. Overflow outside the capture remains selectable/movable on its owning display.
 - History: create A → move A → create B → Undo B → Undo move A → Undo creation A. Repeated moves undo individually; capture Move/resize never enters annotation Undo history.
@@ -63,7 +65,7 @@ Use the stable signed diagnostic app, non-sensitive content, and local-only evid
 
 - [ ] Pointer-arrow button is recognizable and distinct from the Arrow drawing tool; labels/tooltips and active appearance are correct.
 - [ ] Select/drag each tool's annotation, including text, marks partly/fully outside the capture frame, overlapping marks, and thin strokes.
-- [ ] Capture frame stays fixed while an annotation moves; hand-icon Move still moves/resizes only the capture frame.
+- [ ] Capture frame stays fixed while an annotation moves; hand-icon Move still moves/resizes only the capture frame and stops at the capture display edges. Clicking another screen cannot switch the session there; exit and reopen to use it.
 - [ ] Drag near all display edges/seams; marks stay on the originating display without wrapping, resizing, or losing pointer offset.
 - [ ] Undo each move and creation in order; Esc cancels an unfinished drag without deleting ink or closing the capture.
 - [ ] Copy/Save moved multiline text and shapes; compare preview/export at 100%, verify capture clipping, dimensions, and absence of selection outline.
@@ -72,7 +74,7 @@ Use the stable signed diagnostic app, non-sensitive content, and local-only evid
 ## Non-goals
 
 - Annotation resizing/rotation, per-point edits, text re-editing, multi-selection, group moves, keyboard nudging, or redo.
-- New global shortcuts, cross-display transfer, drag-and-drop between apps, or persistent documents.
+- New global shortcuts, spanning captures, switching the capture display within a session, cross-display transfer, drag-and-drop between apps, or persistent documents.
 
 ## Open questions
 

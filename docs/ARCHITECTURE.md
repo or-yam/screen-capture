@@ -4,6 +4,8 @@
 
 For the fuller design background, see [../tech-designs/tahoe-native-region-capture-alignment.md](../tech-designs/tahoe-native-region-capture-alignment.md).
 
+The [one-screen-per-session product rule](../NEW_PRD.md#one-screen-per-capture-session), clarified on 2026-10-16, supersedes older spanning-capture designs. `RegionSelectionState` owns the fixed capture display and constrains selection, capture-frame Move/resize, and annotation gestures. Existing multi-display snapshot/canvas support is not permission to move a session between screens. Signed-app manual QA is pending on `feat/annotation-overflow-selection`.
+
 ## Product Principle
 
 The app is output-first and overlay-first.
@@ -37,6 +39,7 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 - `RegionCaptureOverlayController`: owns AppKit overlay windows, frozen snapshot rendering, selection, annotation toolbar, keyboard handling, permission/save errors, and image export preparation.
 - `RegionSelectionState`: stores live selection bounds, the committed frozen-snapshot crop/frame, vector annotations, drafts, and annotation-only undo.
 - `AnnotationCanvas`: maps immutable session-wide, top-left screen-point coordinates into screen/selection-image frames. `Renderer` shares that mapping between preview and export.
+- `AnnotationGeometry`: shared painted bounds, hit testing, translation constraints, and arrowhead geometry for annotation rendering and selection/movement.
 - `ClipboardService`: writes PNG data to `NSPasteboard`.
 - `SaveService`: writes PNG data to the configured local save folder.
 - `PreferencesStore`: stores save folder, default annotation color, default stroke width, whether save confirmations are shown, and whether the app's menu bar icon is shown.
@@ -111,6 +114,7 @@ Current behavior:
 - Toolbar appears only after a valid region exists.
 - Move-tool edge/corner resizing remains available after annotations. Both resize and Move change only the selected bounds, leaving annotations anchored to frozen content.
 - Replacement selection remains unavailable while committed or draft annotations exist.
+- Shared interaction mode distinguishes capture-frame Move, Select Annotations, and annotation drawing. Select mode routes input before frame movement/reselection; other displays cannot switch the session's capture display.
 - `Esc` discards the active draft and exits the annotation tool to Move. In Move mode, `Esc` closes without output.
 - Copy/save success closes all overlay windows.
 
@@ -143,15 +147,16 @@ Model behavior:
 
 - Annotation identity is stable at creation time.
 - Source-of-truth annotation geometry is in a stable, top-left canvas measured in screen points, based on the frozen snapshots' bounding frame. Resize and Move never rewrite annotation geometry.
-- Marks outside the selected bounds are clipped, not deleted; enlarging the selection or moving back reveals them.
+- Marks outside the selected bounds remain visible on the capture display; export clips them to the capture frame. Each annotation retains the capture display's frozen identity/frame for preview and export confinement.
 - Tool preference widths/font sizes remain pixel-valued and are converted to canvas units at creation. Existing marks retain screen-space size across output-density changes.
 - Preview uses the live selection frame, while export maps through the committed crop's pixel-aligned frame and actual X/Y pixel dimensions. All overlays use the same canvas; clipping to a display never changes that frame.
 - Text is click-to-place and editable before commit.
-- The transparent plain-text `NSTextView` shows only caret/glyphs, grows right/down from its fixed top-left anchor, and breaks lines only on explicit newlines. Editing may overflow the selection; preview/export clips committed text to the selected bounds.
+- The transparent plain-text `NSTextView` shows only caret/glyphs, grows right/down from its fixed top-left anchor, and breaks lines only on explicit newlines. Editing and committed preview may overflow the capture frame but are clipped to the capture display. Export clips text to the capture frame; the full string is retained.
 - The editor and renderer share `AnnotationTextLayout` (TextKit layout, font, zero inset/padding, and unwrapped container) in the annotation's creation-time X/Y pixel basis. This keeps every line anchored consistently on commit and export.
 - Return/Enter inserts a newline. Click-away, focus loss, tool switch, Copy, and Save commit non-empty text; Esc discards the draft without confirmation and returns to Move.
 - No hardcoded sample text is inserted in the current overlay flow.
-- Undo removes the active draft or latest committed annotation, even when hidden. It never undoes resize or Move.
+- Select Annotations uses shared painted geometry, reverse paint-order hit testing, and a model-owned translation transaction. Live translation is preview-only until mouse-up; Copy/Save keeps using committed geometry. Selection outlines are presentation-only.
+- Esc or a tool switch cancels an unfinished translation. Undo cancels a draft/unfinished move first, then reverses committed creation/translation actions without changing annotation identity or stacking order. Capture-frame resize/Move never enters annotation history.
 
 ## Output Strategy
 

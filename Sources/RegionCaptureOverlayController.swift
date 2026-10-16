@@ -156,7 +156,8 @@ final class RegionCaptureOverlayController: CaptureOverlay {
     }
 
     private func focusPrimaryOverlay(reason: String) {
-        guard let window = windows.first else {
+        let captureFrame = selectionState.captureDisplay?.frameInAppKitScreenSpace
+        guard let window = windows.first(where: { $0.frame == captureFrame }) ?? windows.first else {
             AppLogging.selection.debug("No overlay to focus id=\(self.captureID, privacy: .public) reason=\(reason, privacy: .public)")
             return
         }
@@ -279,9 +280,35 @@ final class RegionSelectionState {
     private(set) var annotationCanvas: AnnotationCanvas?
     private(set) var annotations: [OverlayAnnotation] = []
     private(set) var draftAnnotation: OverlayAnnotation?
+    // The one screen chosen for this session. Frozen when the initial selection
+    // starts; confinement for selection, Move/resize and every annotation.
+    private(set) var captureDisplay: DisplayGeometry?
+    var interactionMode: OverlayInteractionMode = .moveCapture {
+        didSet {
+            if oldValue != interactionMode { clearAnnotationSelection() }
+        }
+    }
+
+    private(set) var selectedAnnotationID: UUID?
+    private(set) var annotationMoveIsActive = false
 
     private var annotationDragAnchorInCanvas: CGPoint?
     private var annotationPixelSizeInCanvas = CGSize(width: 1, height: 1)
+
+    // A translation is always derived from the original item and the initial
+    // pointer, so incremental updates never accumulate error.
+    private var annotationMoveOriginal: OverlayAnnotation?
+    private var annotationMovePointerStartInCanvas: CGPoint?
+    private var annotationMovePreview: OverlayAnnotation?
+
+    private enum AnnotationEdit {
+        case create(id: UUID)
+        case translate(id: UUID, before: OverlayAnnotation)
+    }
+    private var annotationHistory: [AnnotationEdit] = []
+
+    // Small screen-point slop so thin strokes and arrowheads stay selectable.
+    private static let annotationHitToleranceInCanvas: CGFloat = 4
 
     init(snapshots: [DisplaySnapshot] = [], captureID: String = "none") {
         self.snapshots = snapshots
@@ -306,6 +333,35 @@ final class RegionSelectionState {
         !annotations.isEmpty || draftAnnotation != nil
     }
 
+    /// Committed annotations, with the actively moved item replaced by its live
+    /// translation. Export keeps using `annotations` until the move commits.
+    var previewAnnotations: [OverlayAnnotation] {
+        guard annotationMoveIsActive, let preview = annotationMovePreview else { return annotations }
+        return annotations.map { $0.id == preview.id ? preview : $0 }
+    }
+
+    /// True when a new interaction may start at this screen point. Before the
+    /// capture display is chosen any snapshot counts; afterwards only the
+    /// capture display does.
+    func canInteract(atScreen point: CGPoint) -> Bool {
+        if let captureDisplay {
+            return captureDisplay.frameInAppKitScreenSpace.contains(point)
+        }
+        return snapshots.contains { $0.display.frameInAppKitScreenSpace.contains(point) }
+    }
+
+    /// Clamps a screen point to the capture display, or to the frozen snapshot
+    /// union before a display has been chosen.
+    func clampedScreenPoint(_ point: CGPoint) -> CGPoint {
+        guard let bounds = captureDisplay?.frameInAppKitScreenSpace ?? snapshotBounds else {
+            return point
+        }
+        return CGPoint(
+            x: Self.clamp(point.x, min: bounds.minX, max: bounds.maxX),
+            y: Self.clamp(point.y, min: bounds.minY, max: bounds.maxY)
+        )
+    }
+
     private static func normalizedRect(from startPoint: NSPoint, to endPoint: NSPoint) -> NSRect {
         let origin = NSPoint(
             x: min(startPoint.x, endPoint.x),
@@ -320,8 +376,13 @@ final class RegionSelectionState {
     }
 
     func beginSelection(at point: NSPoint) {
-        anchorPoint = point
-        currentPoint = point
+        guard canInteract(atScreen: point), !hasCommittedOrDraftAnnotations else { return }
+        if captureDisplay == nil {
+            captureDisplay = snapshotContaining(point)?.display
+        }
+        let clamped = clampedScreenPoint(point)
+        anchorPoint = clamped
+        currentPoint = clamped
         canonicalSelectionRect = nil
         isSelectionAnchored = false
         capturedPNG = nil
@@ -330,17 +391,21 @@ final class RegionSelectionState {
         annotations = []
         draftAnnotation = nil
         annotationDragAnchorInCanvas = nil
+        annotationHistory = []
+        resetAnnotationInteraction()
+        interactionMode = .moveCapture
     }
 
     func updateSelection(to point: NSPoint) {
         guard anchorPoint != nil, !isSelectionAnchored else { return }
-        currentPoint = point
+        currentPoint = clampedScreenPoint(point)
     }
 
     func anchorSelection(at point: NSPoint) {
-        guard let anchorPoint else { return }
-        currentPoint = point
-        canonicalSelectionRect = Self.normalizedRect(from: anchorPoint, to: point)
+        guard let anchorPoint, !isSelectionAnchored else { return }
+        let clamped = clampedScreenPoint(point)
+        currentPoint = clamped
+        canonicalSelectionRect = Self.normalizedRect(from: anchorPoint, to: clamped)
         isSelectionAnchored = true
         capturedPNG = nil
         capturedImage = nil
@@ -348,6 +413,8 @@ final class RegionSelectionState {
         annotations = []
         draftAnnotation = nil
         annotationDragAnchorInCanvas = nil
+        annotationHistory = []
+        resetAnnotationInteraction()
     }
 
     func moveAnchoredSelection(from initialRect: NSRect, by delta: NSSize) {
@@ -376,9 +443,10 @@ final class RegionSelectionState {
     func resizeAnchoredSelection(from initialRect: NSRect, dragging handle: RegionSelectionResizeHandle, to point: NSPoint) {
         guard isSelectionAnchored else { return }
 
-        let bounds = snapshots.first {
-            $0.display.frameInAppKitScreenSpace.contains(initialRect)
-        }?.display.frameInAppKitScreenSpace ?? snapshotBounds ?? initialRect
+        let bounds = captureDisplay?.frameInAppKitScreenSpace
+            ?? snapshots.first { $0.display.frameInAppKitScreenSpace.contains(initialRect) }?.display.frameInAppKitScreenSpace
+            ?? snapshotBounds
+            ?? initialRect
         let minSelectionSize: CGFloat = 12
         var minX = initialRect.minX
         var maxX = initialRect.maxX
@@ -386,16 +454,16 @@ final class RegionSelectionState {
         var maxY = initialRect.maxY
 
         if handle.movesLeftEdge {
-            minX = Self.clamp(point.x, min: bounds.minX, max: maxX - minSelectionSize)
+            minX = Self.clamp(point.x, min: bounds.minX, max: max(bounds.minX, maxX - minSelectionSize))
         }
         if handle.movesRightEdge {
-            maxX = Self.clamp(point.x, min: minX + minSelectionSize, max: bounds.maxX)
+            maxX = Self.clamp(point.x, min: min(bounds.maxX, minX + minSelectionSize), max: bounds.maxX)
         }
         if handle.movesBottomEdge {
-            minY = Self.clamp(point.y, min: bounds.minY, max: maxY - minSelectionSize)
+            minY = Self.clamp(point.y, min: bounds.minY, max: max(bounds.minY, maxY - minSelectionSize))
         }
         if handle.movesTopEdge {
-            maxY = Self.clamp(point.y, min: minY + minSelectionSize, max: bounds.maxY)
+            maxY = Self.clamp(point.y, min: min(bounds.maxY, minY + minSelectionSize), max: bounds.maxY)
         }
 
         setAnchoredSelectionRect(NSRect(
@@ -407,8 +475,18 @@ final class RegionSelectionState {
     }
 
     func setCapturedImageFromFrozenSnapshots(for rect: CGRect) throws {
-        CaptureDiagnostics.log("crop begin selection=\(rect)", captureID: captureID)
-        let crop = try Self.cropFrozenSnapshots(snapshots, to: rect, captureID: captureID)
+        if captureDisplay == nil {
+            captureDisplay = snapshotContaining(rect.origin)?.display ?? snapshots.first?.display
+        }
+        let cropRect = constrainedCropRect(rect)
+        guard !cropRect.isEmpty, !cropRect.isNull,
+              let display = captureDisplay,
+              let snapshot = snapshots.first(where: {
+                  if let id = display.id { return $0.display.id == id }
+                  return $0.display.frameInAppKitScreenSpace == display.frameInAppKitScreenSpace
+              }) else { throw ScreenshotCaptureError.emptyRegion }
+        CaptureDiagnostics.log("crop begin selection=\(cropRect)", captureID: captureID)
+        let crop = try Self.cropFrozenSnapshots([snapshot], to: cropRect, captureID: captureID)
         let image = crop.image
         let pngData = try PNGEncoder.encode(image)
         AppLogging.selection.debug("Crop ready id=\(self.captureID, privacy: .public) pixels=\(image.width)x\(image.height)")
@@ -423,7 +501,10 @@ final class RegionSelectionState {
     }
 
     func beginAnnotation(tool: OverlayAnnotationTool, at point: CGPoint, color: NSColor, lineWidth: CGFloat, fontSize: CGFloat? = nil) {
-        guard let capturedImage, let capturedSelectionRect, annotationCanvas != nil else { return }
+        guard let capturedImage, let capturedSelectionRect, let canvas = annotationCanvas else { return }
+        // A new annotation must start inside the capture frame and on the
+        // session's capture display. The drag itself may continue to the edge.
+        guard annotationPlacementAllowed(at: point, canvas: canvas) else { return }
 
         // Tool preferences remain image-pixel values. Convert once at creation;
         // existing marks then keep their screen size as the output density changes.
@@ -433,6 +514,8 @@ final class RegionSelectionState {
         )
         let canvasLineWidth = lineWidth * annotationPixelSizeInCanvas.width
         annotationDragAnchorInCanvas = point
+        let displayID = captureDisplay?.id
+        let displayFrame = captureDisplay?.frameInAppKitScreenSpace
         switch tool {
         case .arrow:
             draftAnnotation = OverlayAnnotation(
@@ -441,7 +524,9 @@ final class RegionSelectionState {
                 color: color,
                 lineWidth: canvasLineWidth,
                 minimumArrowheadLength: 10 * annotationPixelSizeInCanvas.width,
-                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas,
+                displayID: displayID,
+                displayFrameInAppKitScreenSpace: displayFrame
             )
         case .rectangle:
             draftAnnotation = OverlayAnnotation(
@@ -449,7 +534,9 @@ final class RegionSelectionState {
                 rectInCanvas: CGRect(origin: point, size: .zero),
                 color: color,
                 lineWidth: canvasLineWidth,
-                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas,
+                displayID: displayID,
+                displayFrameInAppKitScreenSpace: displayFrame
             )
         case .draw:
             draftAnnotation = OverlayAnnotation(
@@ -457,7 +544,9 @@ final class RegionSelectionState {
                 pointsInCanvas: [point],
                 color: color,
                 lineWidth: canvasLineWidth,
-                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas,
+                displayID: displayID,
+                displayFrameInAppKitScreenSpace: displayFrame
             )
         case .highlight:
             draftAnnotation = OverlayAnnotation(
@@ -465,7 +554,9 @@ final class RegionSelectionState {
                 pointsInCanvas: [point],
                 color: color.withAlphaComponent(0.35),
                 lineWidth: canvasLineWidth * 3,
-                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas,
+                displayID: displayID,
+                displayFrameInAppKitScreenSpace: displayFrame
             )
         case .text:
             draftAnnotation = OverlayAnnotation(
@@ -474,13 +565,16 @@ final class RegionSelectionState {
                 textPositionInCanvas: point,
                 color: color,
                 fontSize: (fontSize ?? Self.defaultTextFontSize) * annotationPixelSizeInCanvas.height,
-                creationPixelSizeInCanvas: annotationPixelSizeInCanvas
+                creationPixelSizeInCanvas: annotationPixelSizeInCanvas,
+                displayID: displayID,
+                displayFrameInAppKitScreenSpace: displayFrame
             )
         }
     }
 
     func updateAnnotation(to point: CGPoint) {
         guard let annotationDragAnchorInCanvas, var draftAnnotation else { return }
+        let point = clampedCanvasPoint(point)
 
         switch draftAnnotation.kind {
         case .arrow:
@@ -520,6 +614,7 @@ final class RegionSelectionState {
         }
 
         annotations.append(draftAnnotation)
+        annotationHistory.append(.create(id: draftAnnotation.id))
     }
 
     func updateDraftText(_ text: String) {
@@ -534,12 +629,13 @@ final class RegionSelectionState {
             draftAnnotation = nil
         }
 
-        guard var draftAnnotation, draftAnnotation.kind == .text else { return }
-        let trimmedText = draftAnnotation.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedText.isEmpty else { return }
+        guard let draftAnnotation, draftAnnotation.kind == .text else { return }
+        // Keep the full string and its line breaks; whitespace only decides
+        // whether anything was typed.
+        guard !draftAnnotation.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
-        draftAnnotation.text = trimmedText
         annotations.append(draftAnnotation)
+        annotationHistory.append(.create(id: draftAnnotation.id))
     }
 
     func undoLastAnnotation() {
@@ -549,7 +645,24 @@ final class RegionSelectionState {
             return
         }
 
-        _ = annotations.popLast()
+        if annotationMoveIsActive {
+            cancelAnnotationMove()
+            return
+        }
+
+        guard let edit = annotationHistory.popLast() else { return }
+        switch edit {
+        case .create(let id):
+            annotations.removeAll { $0.id == id }
+        case .translate(let id, let before):
+            if let index = annotations.firstIndex(where: { $0.id == id }) {
+                annotations[index] = before
+            }
+        }
+
+        if let selectedAnnotationID, !annotations.contains(where: { $0.id == selectedAnnotationID }) {
+            self.selectedAnnotationID = nil
+        }
     }
 
     func reset() {
@@ -566,6 +679,156 @@ final class RegionSelectionState {
         draftAnnotation = nil
         annotationDragAnchorInCanvas = nil
         annotationPixelSizeInCanvas = CGSize(width: 1, height: 1)
+        captureDisplay = nil
+        interactionMode = .moveCapture
+        annotationHistory = []
+        resetAnnotationInteraction()
+    }
+
+    // MARK: - Annotation selection and movement
+
+    /// Selects the topmost annotation whose painted ink contains the canvas
+    /// point. Empty space, or a point off the capture display, deselects.
+    func selectAnnotation(at point: CGPoint) {
+        cancelAnnotationMove()
+        guard let canvas = annotationCanvas, canInteract(atScreen: canvas.screenPoint(fromCanvas: point)) else {
+            clearAnnotationSelection()
+            return
+        }
+        selectedAnnotationID = topmostAnnotation(at: point)?.id
+        CaptureDiagnostics.log("annotation select id=\(selectedAnnotationID?.uuidString ?? "none")", captureID: captureID)
+    }
+
+    /// Selects the hit annotation and begins a translation transaction. The
+    /// pointer start is recorded in canvas space so updates never accumulate.
+    func beginAnnotationMove(at point: CGPoint) {
+        guard
+            let canvas = annotationCanvas,
+            canInteract(atScreen: canvas.screenPoint(fromCanvas: point)),
+            let hit = topmostAnnotation(at: point)
+        else {
+            clearAnnotationSelection()
+            return
+        }
+
+        selectedAnnotationID = hit.id
+        annotationMoveOriginal = hit
+        annotationMovePointerStartInCanvas = point
+        annotationMovePreview = hit
+        annotationMoveIsActive = true
+        CaptureDiagnostics.log("annotation move begin id=\(hit.id) point=\(point)", captureID: captureID)
+    }
+
+    func updateAnnotationMove(to point: CGPoint) {
+        guard
+            annotationMoveIsActive,
+            let original = annotationMoveOriginal,
+            let start = annotationMovePointerStartInCanvas
+        else { return }
+
+        let proposed = CGSize(width: point.x - start.x, height: point.y - start.y)
+        // A click, or an item already clipped at its limit, must not correct
+        // itself on a zero delta.
+        guard proposed != .zero else {
+            annotationMovePreview = original
+            return
+        }
+
+        guard let bounds = captureDisplayCanvasRect else {
+            annotationMovePreview = AnnotationGeometry.translated(original, by: proposed)
+            return
+        }
+
+        let constrained = AnnotationGeometry.constrainedTranslation(of: original, proposed: proposed, within: bounds)
+        // Stroking a translated path can leave sub-ulp room at a clamped edge.
+        // Treat that numerical noise as zero, not another undoable movement.
+        let stableDelta = CGSize(
+            width: abs(constrained.width) < 0.0000001 ? 0 : constrained.width,
+            height: abs(constrained.height) < 0.0000001 ? 0 : constrained.height
+        )
+        annotationMovePreview = AnnotationGeometry.translated(original, by: stableDelta)
+    }
+
+    /// Commits one non-zero move as a single undoable translation. A no-op
+    /// leaves geometry and history untouched.
+    func commitAnnotationMove() {
+        guard annotationMoveIsActive else { return }
+        let original = annotationMoveOriginal
+        let preview = annotationMovePreview
+        endAnnotationMove()
+
+        guard
+            let original,
+            let preview,
+            Self.geometryDiffers(preview, original),
+            let index = annotations.firstIndex(where: { $0.id == preview.id })
+        else { return }
+
+        annotations[index] = preview
+        annotationHistory.append(.translate(id: preview.id, before: original))
+        CaptureDiagnostics.log("annotation move commit id=\(preview.id)", captureID: captureID)
+    }
+
+    /// Reverts an unfinished translation, keeping the selection.
+    func cancelAnnotationMove() {
+        if annotationMoveIsActive {
+            CaptureDiagnostics.log("annotation move cancel id=\(selectedAnnotationID?.uuidString ?? "none")", captureID: captureID)
+        }
+        endAnnotationMove()
+    }
+
+    /// Clears the selection and any unfinished translation.
+    func clearAnnotationSelection() {
+        cancelAnnotationMove()
+        selectedAnnotationID = nil
+    }
+
+    private func endAnnotationMove() {
+        annotationMoveIsActive = false
+        annotationMoveOriginal = nil
+        annotationMovePointerStartInCanvas = nil
+        annotationMovePreview = nil
+    }
+
+    private func resetAnnotationInteraction() {
+        endAnnotationMove()
+        selectedAnnotationID = nil
+    }
+
+    private func topmostAnnotation(at point: CGPoint) -> OverlayAnnotation? {
+        for annotation in annotations.reversed()
+        where AnnotationGeometry.hitTest(annotation, at: point, tolerance: Self.annotationHitToleranceInCanvas) {
+            return annotation
+        }
+        return nil
+    }
+
+    private func annotationPlacementAllowed(at point: CGPoint, canvas: AnnotationCanvas) -> Bool {
+        guard let selectionRect = selectionRect else { return false }
+        let screenPoint = canvas.screenPoint(fromCanvas: point)
+        return canInteract(atScreen: screenPoint) && selectionRect.contains(screenPoint)
+    }
+
+    private func clampedCanvasPoint(_ canvasPoint: CGPoint) -> CGPoint {
+        guard let canvas = annotationCanvas else { return canvasPoint }
+        return canvas.point(fromScreen: clampedScreenPoint(canvas.screenPoint(fromCanvas: canvasPoint)))
+    }
+
+    private var captureDisplayCanvasRect: CGRect? {
+        guard let canvas = annotationCanvas, let displayFrame = captureDisplay?.frameInAppKitScreenSpace else {
+            return nil
+        }
+        return canvas.rect(fromScreen: displayFrame)
+    }
+
+    private static func geometryDiffers(_ lhs: OverlayAnnotation, _ rhs: OverlayAnnotation) -> Bool {
+        lhs.rectInCanvas != rhs.rectInCanvas
+            || lhs.pointsInCanvas != rhs.pointsInCanvas
+            || lhs.textPositionInCanvas != rhs.textPositionInCanvas
+    }
+
+    private func snapshotContaining(_ point: CGPoint) -> DisplaySnapshot? {
+        snapshots.first { $0.display.frameInAppKitScreenSpace.contains(point) }
     }
 
     private func annotationPixelDistance(from start: CGPoint, to end: CGPoint) -> CGFloat {
@@ -582,14 +845,25 @@ final class RegionSelectionState {
     }
 
     private func constrainedRect(_ rect: NSRect) -> NSRect {
-        guard let snapshotBounds else { return rect }
+        guard let bounds = selectionConfinementBounds else { return rect }
 
         return NSRect(
-            x: Self.clamp(rect.minX, min: snapshotBounds.minX, max: snapshotBounds.maxX - rect.width),
-            y: Self.clamp(rect.minY, min: snapshotBounds.minY, max: snapshotBounds.maxY - rect.height),
+            x: Self.clamp(rect.minX, min: bounds.minX, max: bounds.maxX - rect.width),
+            y: Self.clamp(rect.minY, min: bounds.minY, max: bounds.maxY - rect.height),
             width: rect.width,
             height: rect.height
         )
+    }
+
+    private func constrainedCropRect(_ rect: CGRect) -> CGRect {
+        let standardized = rect.standardized
+        guard let displayFrame = captureDisplay?.frameInAppKitScreenSpace else { return standardized }
+        let intersection = standardized.intersection(displayFrame)
+        return intersection
+    }
+
+    private var selectionConfinementBounds: NSRect? {
+        captureDisplay?.frameInAppKitScreenSpace ?? snapshotBounds
     }
 
     private var snapshotBounds: NSRect? {
@@ -771,6 +1045,10 @@ struct OverlayAnnotation: Identifiable {
     // Retain the creation-time pixel basis for stroke/glyph proportions when
     // measured X/Y density differs. Selection changes never update this basis.
     let creationPixelSizeInCanvas: CGSize
+    // The session's capture display identity and its frozen frame. Immutable:
+    // translating or moving an annotation never changes its owning display.
+    let displayID: CGDirectDisplayID?
+    let displayFrameInAppKitScreenSpace: CGRect?
 
     init(
         id: UUID = UUID(),
@@ -783,7 +1061,9 @@ struct OverlayAnnotation: Identifiable {
         lineWidth: CGFloat = 4,
         fontSize: CGFloat = 28,
         minimumArrowheadLength: CGFloat = 10,
-        creationPixelSizeInCanvas: CGSize = CGSize(width: 1, height: 1)
+        creationPixelSizeInCanvas: CGSize = CGSize(width: 1, height: 1),
+        displayID: CGDirectDisplayID? = nil,
+        displayFrameInAppKitScreenSpace: CGRect? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -796,7 +1076,15 @@ struct OverlayAnnotation: Identifiable {
         self.fontSize = fontSize
         self.minimumArrowheadLength = minimumArrowheadLength
         self.creationPixelSizeInCanvas = creationPixelSizeInCanvas
+        self.displayID = displayID
+        self.displayFrameInAppKitScreenSpace = displayFrameInAppKitScreenSpace
     }
+}
+
+enum OverlayInteractionMode: Equatable {
+    case moveCapture
+    case selectAnnotations
+    case draw(OverlayAnnotationTool)
 }
 
 final class RegionCaptureOverlayWindow: NSWindow {
@@ -864,7 +1152,8 @@ final class RegionCaptureOverlayView: NSView {
     private let annotationToolbarBackground = FloatingToolbarBackgroundView()
     private let actionBarBackground = FloatingToolbarBackgroundView()
     private let shortcutHelpView = OverlayShortcutHelpView()
-    private let moveButton = SolidActionButton(symbolName: "hand.raised", accessibilityDescription: "Move")
+    private let moveButton = SolidActionButton(symbolName: "hand.raised", accessibilityDescription: "Move", helpText: "Move capture frame")
+    private let selectAnnotationsButton = SolidActionButton(symbolName: "cursorarrow", accessibilityDescription: "Select Annotations", helpText: "Select and move annotations")
     private let arrowButton = SolidActionButton(symbolName: "arrow.up.right", accessibilityDescription: "Arrow")
     private let textButton = SolidActionButton(symbolName: "textformat", accessibilityDescription: "Text")
     private let rectangleButton = SolidActionButton(symbolName: "rectangle", accessibilityDescription: "Rectangle")
@@ -892,14 +1181,19 @@ final class RegionCaptureOverlayView: NSView {
         accessibilityDescription: "Cancel",
         helpText: "Cancel (Esc)"
     )
-    private var activeAnnotationTool: OverlayAnnotationTool?
-    private var isMoveToolActive = true
+    private var activeAnnotationTool: OverlayAnnotationTool? {
+        if case let .draw(tool) = selectionState.interactionMode { return tool }
+        return nil
+    }
+    private var isMoveToolActive: Bool { selectionState.interactionMode == .moveCapture }
+    private var isAnnotationSelectionActive: Bool { selectionState.interactionMode == .selectAnnotations }
     private var selectionMoveStartPoint: NSPoint?
     private var selectionMoveStartRect: NSRect?
     private var selectionResizeHandle: RegionSelectionResizeHandle?
     private var selectionResizeStartRect: NSRect?
     private var pendingReselectionStartPoint: NSPoint?
     private var isReselectingRegion = false
+    private var isSelectingRegion = false
     private var diagnosticDragEventCount = 0
     private var selectedColor: NSColor
     private var selectedStrokeIndex: Int
@@ -947,6 +1241,8 @@ final class RegionCaptureOverlayView: NSView {
 
         wantsLayer = true
         layer?.backgroundColor = NSColor.clear.cgColor
+        // The editor can grow past the capture frame, never past its display.
+        layer?.masksToBounds = true
         configureActionButtons()
     }
 
@@ -975,7 +1271,7 @@ final class RegionCaptureOverlayView: NSView {
     }
 
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .crosshair)
+        addCursorRect(bounds, cursor: isAnnotationSelectionActive ? .arrow : .crosshair)
 
         guard selectionState.isSelectionAnchored, let selectionRect = selectionState.selectionRect else {
             return
@@ -997,6 +1293,9 @@ final class RegionCaptureOverlayView: NSView {
 
         if !moveButton.isHidden {
             addCursorRect(moveButton.frame, cursor: .arrow)
+        }
+        if !selectAnnotationsButton.isHidden {
+            addCursorRect(selectAnnotationsButton.frame, cursor: .arrow)
         }
         if !copyButton.isHidden {
             addCursorRect(copyButton.frame, cursor: .arrow)
@@ -1035,6 +1334,8 @@ final class RegionCaptureOverlayView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         let point = screenPoint(for: event)
+        guard selectionState.canInteract(atScreen: point) else { return }
+        window?.makeKey()
         diagnosticDragEventCount = 0
         CaptureDiagnostics.log("mouseDown window=\(window?.windowNumber ?? -1) frame=\(window?.frame ?? .zero) key=\(window?.isKeyWindow ?? false) point=\(point) anchored=\(selectionState.isSelectionAnchored) captured=\(selectionState.capturedImage != nil)", captureID: selectionState.captureID)
         if let activeTextField {
@@ -1042,6 +1343,13 @@ final class RegionCaptureOverlayView: NSView {
             if !activeTextField.frame.contains(localPoint) {
                 commitActiveTextField()
             }
+        }
+        if isAnnotationSelectionActive, let canvas = selectionState.annotationCanvas {
+            window?.makeFirstResponder(self)
+            selectionState.beginAnnotationMove(at: canvas.point(fromScreen: point))
+            (selectionState.annotationMoveIsActive ? NSCursor.closedHand : NSCursor.arrow).set()
+            refresh()
+            return
         }
         if let handle = resizeHandle(at: convert(event.locationInWindow, from: nil)) {
             beginSelectionResize(handle: handle)
@@ -1080,6 +1388,7 @@ final class RegionCaptureOverlayView: NSView {
 
         AppLogging.selection.debug("Selection started id=\(self.selectionState.captureID, privacy: .public) point=\(String(describing: point), privacy: .public)")
         selectionState.beginSelection(at: point)
+        isSelectingRegion = true
         refresh()
     }
 
@@ -1088,6 +1397,12 @@ final class RegionCaptureOverlayView: NSView {
         if diagnosticDragEventCount == 1 || diagnosticDragEventCount.isMultiple(of: 30) {
             AppLogging.selection.debug("Drag id=\(self.selectionState.captureID, privacy: .public) events=\(self.diagnosticDragEventCount) point=\(String(describing: self.screenPoint(for: event)), privacy: .public)")
             CaptureDiagnostics.log("mouseDragged window=\(window?.windowNumber ?? -1) count=\(diagnosticDragEventCount) point=\(screenPoint(for: event)) selection=\(String(describing: selectionState.selectionRect)) anchored=\(selectionState.isSelectionAnchored) captured=\(selectionState.capturedImage != nil)", captureID: selectionState.captureID)
+        }
+        if isAnnotationSelectionActive, let canvas = selectionState.annotationCanvas {
+            selectionState.updateAnnotationMove(to: canvas.point(fromScreen: screenPoint(for: event)))
+            if selectionState.annotationMoveIsActive { NSCursor.closedHand.set() }
+            refresh()
+            return
         }
         if selectionResizeHandle != nil {
             updateSelectionResize(to: screenPoint(for: event))
@@ -1101,7 +1416,7 @@ final class RegionCaptureOverlayView: NSView {
             updatePendingReselection(to: screenPoint(for: event))
             return
         }
-        if activeAnnotationTool != nil, activeAnnotationTool != .text, let canvasPoint = canvasPointForAnnotationEvent(event) {
+        if activeAnnotationTool != nil, activeAnnotationTool != .text, let canvasPoint = canvasPointForAnnotationEvent(event, continuing: true) {
             selectionState.updateAnnotation(to: canvasPoint)
             refresh()
             return
@@ -1110,6 +1425,7 @@ final class RegionCaptureOverlayView: NSView {
             return
         }
 
+        guard isSelectingRegion else { return }
         selectionState.updateSelection(to: screenPoint(for: event))
         refresh()
     }
@@ -1117,11 +1433,20 @@ final class RegionCaptureOverlayView: NSView {
     override func mouseUp(with event: NSEvent) {
         AppLogging.selection.debug("Mouse released id=\(self.selectionState.captureID, privacy: .public) dragEvents=\(self.diagnosticDragEventCount)")
         CaptureDiagnostics.log("mouseUp window=\(window?.windowNumber ?? -1) point=\(screenPoint(for: event)) dragEvents=\(diagnosticDragEventCount)", captureID: selectionState.captureID)
+        if isAnnotationSelectionActive, let canvas = selectionState.annotationCanvas {
+            selectionState.updateAnnotationMove(to: canvas.point(fromScreen: screenPoint(for: event)))
+            selectionState.commitAnnotationMove()
+            (selectionState.selectedAnnotationID == nil ? NSCursor.arrow : NSCursor.openHand).set()
+            refresh()
+            return
+        }
         if selectionResizeHandle != nil {
+            updateSelectionResize(to: screenPoint(for: event))
             finishSelectionResize()
             return
         }
         if selectionMoveStartPoint != nil {
+            updateSelectionMove(to: screenPoint(for: event))
             finishSelectionMove()
             return
         }
@@ -1129,7 +1454,7 @@ final class RegionCaptureOverlayView: NSView {
             finishPendingReselection(at: screenPoint(for: event))
             return
         }
-        if activeAnnotationTool != nil, activeAnnotationTool != .text, let canvasPoint = canvasPointForAnnotationEvent(event) {
+        if activeAnnotationTool != nil, activeAnnotationTool != .text, let canvasPoint = canvasPointForAnnotationEvent(event, continuing: true) {
             selectionState.updateAnnotation(to: canvasPoint)
             selectionState.commitAnnotation()
             refresh()
@@ -1142,6 +1467,8 @@ final class RegionCaptureOverlayView: NSView {
             return
         }
 
+        guard isSelectingRegion else { return }
+        isSelectingRegion = false
         selectionState.anchorSelection(at: screenPoint(for: event))
         refresh()
 
@@ -1156,7 +1483,7 @@ final class RegionCaptureOverlayView: NSView {
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 {
             CaptureDiagnostics.log("escape window=\(window?.windowNumber ?? -1)", captureID: selectionState.captureID)
-            if activeAnnotationTool != nil || activeTextField != nil {
+            if activeAnnotationTool != nil || activeTextField != nil || isAnnotationSelectionActive {
                 exitAnnotationMode()
                 return
             }
@@ -1195,8 +1522,11 @@ final class RegionCaptureOverlayView: NSView {
             NSColor.clear.setFill()
             bounds.fill(using: .copy)
         }
-        drawAnnotations(in: fullLocalSelectionRect)
         NSGraphicsContext.restoreGraphicsState()
+
+        // Ink outside the capture is painted above the dimmed frozen desktop.
+        drawAnnotations(in: fullLocalSelectionRect)
+        drawAnnotationSelection()
 
         NSColor.white.setStroke()
         let borderPath = NSBezierPath(rect: fullLocalSelectionRect)
@@ -1244,6 +1574,11 @@ final class RegionCaptureOverlayView: NSView {
         moveButton.action = #selector(moveButtonPressed)
         moveButton.isHidden = true
         addSubview(moveButton)
+
+        selectAnnotationsButton.target = self
+        selectAnnotationsButton.action = #selector(selectAnnotationsButtonPressed)
+        selectAnnotationsButton.isHidden = true
+        addSubview(selectAnnotationsButton)
 
         arrowButton.target = self
         arrowButton.action = #selector(arrowButtonPressed)
@@ -1300,7 +1635,7 @@ final class RegionCaptureOverlayView: NSView {
         closeButton.isHidden = true
         addSubview(closeButton)
 
-        [undoButton, copyButton, saveButton, closeButton].forEach(configureShortcutHelp)
+        [moveButton, selectAnnotationsButton, undoButton, copyButton, saveButton, closeButton].forEach(configureShortcutHelp)
         shortcutHelpView.isHidden = true
         addSubview(shortcutHelpView)
     }
@@ -1310,8 +1645,6 @@ final class RegionCaptureOverlayView: NSView {
             let selectionRect = selectionState.selectionRect,
             selectionState.capturedImage != nil
         else {
-            activeAnnotationTool = nil
-            isMoveToolActive = true
             colorPopover?.close()
             strokePopover?.close()
             hideFloatingControls()
@@ -1320,8 +1653,6 @@ final class RegionCaptureOverlayView: NSView {
 
         let localSelectionRect = convertScreenRectToLocal(selectionRect).intersection(bounds)
         guard !localSelectionRect.isEmpty else {
-            activeAnnotationTool = nil
-            isMoveToolActive = true
             colorPopover?.close()
             strokePopover?.close()
             hideFloatingControls()
@@ -1329,6 +1660,7 @@ final class RegionCaptureOverlayView: NSView {
         }
 
         moveButton.isActive = isMoveToolActive && activeAnnotationTool == nil
+        selectAnnotationsButton.isActive = isAnnotationSelectionActive
         drawButton.isActive = activeAnnotationTool == .draw
         highlightButton.isActive = activeAnnotationTool == .highlight
         arrowButton.isActive = activeAnnotationTool == .arrow
@@ -1336,7 +1668,7 @@ final class RegionCaptureOverlayView: NSView {
         rectangleButton.isActive = activeAnnotationTool == .rectangle
         colorButton.swatchColor = selectedColor
 
-        let annotationButtons = [moveButton, drawButton, highlightButton, arrowButton, textButton, rectangleButton, colorButton, strokeButton, undoButton]
+        let annotationButtons = [moveButton, selectAnnotationsButton, drawButton, highlightButton, arrowButton, textButton, rectangleButton, colorButton, strokeButton, undoButton]
         let actionButtons = [copyButton, saveButton, closeButton]
         let toolbarSize = floatingBarSize(buttonCount: annotationButtons.count, axis: .vertical)
         let actionBarSize = floatingBarSize(buttonCount: actionButtons.count, axis: .horizontal)
@@ -1373,7 +1705,7 @@ final class RegionCaptureOverlayView: NSView {
         annotationToolbarBackground.isHidden = true
         actionBarBackground.isHidden = true
         hideShortcutHelp()
-        [moveButton, arrowButton, textButton, rectangleButton, drawButton, highlightButton, colorButton, strokeButton, undoButton, copyButton, saveButton, closeButton].forEach {
+        [moveButton, selectAnnotationsButton, arrowButton, textButton, rectangleButton, drawButton, highlightButton, colorButton, strokeButton, undoButton, copyButton, saveButton, closeButton].forEach {
             $0.isHidden = true
         }
     }
@@ -1568,11 +1900,19 @@ final class RegionCaptureOverlayView: NSView {
 
     @objc private func moveButtonPressed() {
         commitActiveTextField()
-        activeAnnotationTool = nil
-        isMoveToolActive = true
+        switchInteractionMode(to: .moveCapture)
         colorPopover?.close()
         strokePopover?.close()
         AppLogging.selection.debug("Move tool selected id=\(self.selectionState.captureID, privacy: .public)")
+        refresh()
+    }
+
+    @objc private func selectAnnotationsButtonPressed() {
+        commitActiveTextField()
+        switchInteractionMode(to: .selectAnnotations)
+        colorPopover?.close()
+        strokePopover?.close()
+        window?.makeFirstResponder(self)
         refresh()
     }
 
@@ -1647,15 +1987,15 @@ final class RegionCaptureOverlayView: NSView {
     }
 
     private func toggleAnnotationTool(_ tool: OverlayAnnotationTool) {
-        if activeAnnotationTool == tool {
-            activeAnnotationTool = nil
-            isMoveToolActive = true
-        } else {
-            activeAnnotationTool = tool
-            isMoveToolActive = false
-        }
+        switchInteractionMode(to: activeAnnotationTool == tool ? .moveCapture : .draw(tool))
         AppLogging.selection.debug("Annotation tool selected id=\(self.selectionState.captureID, privacy: .public) tool=\(String(describing: self.activeAnnotationTool), privacy: .public)")
         refresh()
+    }
+
+    private func switchInteractionMode(to mode: OverlayInteractionMode) {
+        selectionState.clearAnnotationSelection()
+        if selectionState.draftAnnotation != nil { selectionState.undoLastAnnotation() }
+        selectionState.interactionMode = mode
     }
 
     @objc private func undoButtonPressed() {
@@ -1767,7 +2107,8 @@ final class RegionCaptureOverlayView: NSView {
         )
 
         activeTextField = field
-        addSubview(field)
+        // Keep the toolbar above even a long, overflowing editing surface.
+        addSubview(field, positioned: .below, relativeTo: annotationToolbarBackground)
         window?.makeFirstResponder(field)
         refresh()
     }
@@ -1800,8 +2141,8 @@ final class RegionCaptureOverlayView: NSView {
         if selectionState.draftAnnotation != nil {
             selectionState.undoLastAnnotation()
         }
-        activeAnnotationTool = nil
-        isMoveToolActive = true
+        selectionState.clearAnnotationSelection()
+        selectionState.interactionMode = .moveCapture
         window?.makeFirstResponder(self)
         refresh()
     }
@@ -2032,7 +2373,7 @@ final class RegionCaptureOverlayView: NSView {
         }
     }
 
-    private func canvasPointForAnnotationEvent(_ event: NSEvent) -> CGPoint? {
+    private func canvasPointForAnnotationEvent(_ event: NSEvent, continuing: Bool = false) -> CGPoint? {
         guard
             selectionState.capturedImage != nil,
             let canvas = selectionState.annotationCanvas,
@@ -2041,12 +2382,17 @@ final class RegionCaptureOverlayView: NSView {
             return nil
         }
 
+        if continuing {
+            guard selectionState.draftAnnotation != nil else { return nil }
+            return canvas.point(fromScreen: selectionState.clampedScreenPoint(screenPoint(for: event)))
+        }
+
         let localSelectionRect = convertScreenRectToLocal(selectionRect)
         let visibleSelectionRect = localSelectionRect.intersection(bounds)
         guard !visibleSelectionRect.isEmpty else { return nil }
 
         let localPoint = convert(event.locationInWindow, from: nil)
-        guard visibleSelectionRect.contains(localPoint) else { return nil }
+        guard visibleSelectionRect.contains(localPoint), selectionState.canInteract(atScreen: screenPoint(for: event)) else { return nil }
 
         return canvas.point(fromScreen: screenPoint(for: event))
     }
@@ -2059,12 +2405,47 @@ final class RegionCaptureOverlayView: NSView {
         else { return }
 
         Renderer().drawAnnotations(
-            selectionState.annotations + [selectionState.draftAnnotation].compactMap({ $0 }),
+            selectionState.previewAnnotations + [selectionState.draftAnnotation].compactMap({ $0 }),
             canvas: canvas,
             selectionRect: selectionRect,
             in: context,
-            destinationRect: localSelectionRect
+            destinationRect: localSelectionRect,
+            previewClip: selectionState.captureDisplay.map { convertScreenRectToLocal($0.frameInAppKitScreenSpace).intersection(bounds) } ?? bounds
         )
+    }
+
+    private func drawAnnotationSelection() {
+        guard isAnnotationSelectionActive,
+              let id = selectionState.selectedAnnotationID,
+              let mark = selectionState.previewAnnotations.first(where: { $0.id == id }),
+              let canvas = selectionState.annotationCanvas,
+              let display = selectionState.captureDisplay else { return }
+        let inkBounds = AnnotationGeometry.paintedBounds(of: mark).insetBy(dx: -3, dy: -3)
+        guard !inkBounds.isNull else { return }
+        let screenRect = CGRect(
+            x: canvas.frameInAppKitScreenSpace.minX + inkBounds.minX,
+            y: canvas.frameInAppKitScreenSpace.maxY - inkBounds.maxY,
+            width: inkBounds.width, height: inkBounds.height
+        )
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: convertScreenRectToLocal(display.frameInAppKitScreenSpace).intersection(bounds)).addClip()
+        NSColor.controlAccentColor.setStroke()
+        let outline = NSBezierPath(rect: convertScreenRectToLocal(screenRect))
+        outline.lineWidth = 1
+        outline.stroke()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard isAnnotationSelectionActive, let canvas = selectionState.annotationCanvas else {
+            super.mouseMoved(with: event)
+            return
+        }
+        let screenPoint = screenPoint(for: event)
+        let point = canvas.point(fromScreen: screenPoint)
+        let hitsInk = selectionState.canInteract(atScreen: screenPoint)
+            && selectionState.previewAnnotations.reversed().contains { AnnotationGeometry.hitTest($0, at: point) }
+        (hitsInk ? NSCursor.openHand : NSCursor.arrow).set()
     }
 
     private var selectedStrokeWidth: CGFloat {

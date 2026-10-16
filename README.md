@@ -10,6 +10,12 @@ menu or Cmd-Shift-S -> frozen screen overlay -> drag region -> annotate in place
 
 The MVP is region capture only. Window capture, full-screen capture, history, upload, OCR, public distribution, sandboxing, telemetry, notarization, auto-update, and App Store concerns are out of scope.
 
+## Capture Display Rule
+
+Each capture session belongs to one screen. Selection, annotations, and moving/resizing the capture frame must stay on that screen. To capture another screen, exit and start a new capture there. Annotations may extend past the capture frame, but never onto another screen; Copy/Save includes only content inside the frame.
+
+Screen locking, annotation overflow, and annotation selection/movement are implemented on `feat/annotation-overflow-selection`; signed-app manual QA is pending. See [the product rule](NEW_PRD.md#one-screen-per-capture-session).
+
 ## Current Behavior
 
 - Launches as a menu-bar accessory app.
@@ -19,12 +25,14 @@ The MVP is region capture only. Window capture, full-screen capture, history, up
 - Ignores repeated capture triggers while those snapshots are pending; a new capture can start once the overlay is ready or capture has failed.
 - Shows app-owned borderless AppKit overlay windows over active displays.
 - Lets the user drag a rectangular region, then keeps that region anchored for annotation.
-- Selections wholly inside one display are aligned outward to source pixels and cropped directly, without resampling. The anchored outline follows those pixel bounds; same-display moves snap to that pixel grid. Spanning selections use the existing compositor.
+- Selections are confined to the chosen capture display, aligned outward to source pixels, and cropped directly without resampling. The anchored outline follows those pixel bounds; moves snap to that display's pixel grid. The capture display stays fixed until the session ends.
 - Shows the annotation toolbar only after a valid region exists.
-- Supports Arrow, Text, Rectangle, Draw, Highlight, Color, Stroke size, Undo, Copy, Save, and Close.
+- Supports capture-frame Move (hand), Select Annotations (pointer arrow), Arrow drawing, Text, Rectangle, Draw, Highlight, Color, Stroke size, Undo, Copy, Save, and Close.
 - With Move selected, lets the user resize using edge/corner handles even after annotating. Resize and Move keep annotations anchored over the same frozen screen content, without stretching them.
-- Hides annotation content outside the selection without deleting it; resizing or moving back reveals it. Undo removes annotations only (including hidden ones), not selection changes. Drawing a replacement selection remains disabled while annotations exist.
-- Uses a shared, stable screen-point annotation canvas for preview and export; a display showing only part of the selection clips it without rescaling it. Existing annotations keep their screen-space size when output density changes.
+- Keeps annotation ink visible outside the capture frame, clipped to the capture display. Copy/Save clips to the frame; moving/resizing the frame never moves the ink. Drawing a replacement selection remains disabled while annotations exist and can never switch the capture display.
+- Select Annotations picks the topmost painted item, including ink outside the capture frame, and translates it without resizing it or moving the frame. Screen edges constrain movement. Esc/tool switch cancels an unfinished move; Copy/Save during movement uses its last committed position.
+- Undo cancels a draft or unfinished annotation move first, then undoes committed annotation creations/moves in order. It never undoes capture-frame Move/resize.
+- Uses a shared, stable screen-point annotation canvas for preview and export. Display clipping never rescales it; existing annotations keep their creation-time X/Y pixel basis.
 - Copies flattened annotated PNG data to `NSPasteboard`.
 - Saves flattened annotated PNG files to the configured screenshot folder.
 - Handles Screen Recording permission denial with a targeted alert and an Open System Settings action.
@@ -64,7 +72,7 @@ For local capture debugging, use the signed debug bundle described below. `swift
 swift test
 ```
 
-The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, stable annotation mapping, all resize handles/tools, Move and clipping/reveal, annotation-only undo, and offscreen AppKit preview/export placement at 1×, 2×, and 5/3× density. It also routes synthetic mouse/keyboard events through the overlay, including export during resizing and replacement-selection restrictions. Text tests cover newline-only editing, overflow, draft cancellation, all commit paths, and live-editor/export pixel alignment at uniform and independent X/Y densities. A hidden, never-ordered AppKit window verifies Return, Esc, and focus-loss responder behavior. Tests use synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, visible app windows, or system clipboard writes. They do not replace signed-app QA on real displays.
+The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, stable annotation mapping, all resize handles/tools, Move and output clipping/reveal, annotation history, and offscreen AppKit preview/export placement at 1×, 2×, and 5/3× density. It also routes synthetic mouse/keyboard events through the overlay, including screen locking, overflow, Select Annotations, translation/Undo/cancellation, export during annotation movement or resizing, and replacement-selection restrictions. Geometry tests cover painted bounds, arrowheads, rectangle interiors, screen-point hit tolerance, and display clipping in horizontal/vertical layouts. Text tests cover newline-only editing, overflow, draft cancellation, all commit paths, and live-editor/export pixel alignment at uniform and independent X/Y densities. A hidden, never-ordered AppKit window verifies Return, Esc, and focus-loss responder behavior. Tests use synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, visible app windows, or system clipboard writes. They do not replace signed-app QA on real displays.
 
 Some Swift 6.4 Command Line Tools builds fail to discover the bundled `TestingMacros` plugin when compiling the test module. If `swift test` reports that exact missing-plugin error, explicitly load the selected toolchain's plugin:
 
@@ -176,7 +184,7 @@ Use sharp, non-sensitive text or a pixel pattern:
 2. **Cmd-C** or **Cmd-S**, initially without annotations; inspect output at **100% zoom**.
 3. Confirm new entries in `.build/capture-diagnostics/evidence/events.log` and new PNG files. Successful capture alone does not prove diagnostics were enabled.
 4. Compare `snapshot-*` → `direct-source-crop-*` → `crop-*` → `export-*`. Check source density, crop geometry, pixel dimensions, and pixel/byte changes to locate the loss stage.
-5. Repeat on each extended display without crossing boundaries, then test annotations, spanning selections, and mirrored mode as relevant. A laptop-only pass is only a baseline.
+5. Repeat in a new capture session on each extended display, then test annotations and mirrored mode as relevant. Attempt screen-edge crossings during initial selection, Move/resize, and annotation gestures; the required behavior is to stay on the capture display. Clicking another display must not switch the session there. A laptop-only pass is only a baseline. Use the [annotation overflow/selection QA checklist](.scratch/annotation-selection-move/qa/README.md).
 
 Evidence also includes source revision/files, signing requirement, and binary hash. Diagnostics are opt-in in debug builds and disabled in release builds. PNG evidence writes add overhead at capture start/release, so diagnostic timings are not production benchmarks.
 
@@ -219,7 +227,7 @@ The current MVP is expected to satisfy:
 6. Arrow, text, rectangle, draw, highlight, color, stroke size, and undo work.
 7. `Cmd+C` or toolbar Copy copies final PNG and closes.
 8. `Cmd+S` or toolbar Save saves final PNG and closes.
-9. `Esc` discards the active annotation draft and returns to Move; in Move mode it cancels and closes without output.
+9. `Esc` discards an active annotation draft or cancels an unfinished annotation move, clears item selection, and returns to capture-frame Move; in Move mode it cancels and closes without output.
 10. Output is correct on Retina and multi-display setups.
 
 The latest manual QA pass is recorded in [docs/CURRENT-QA-NOTES.md](docs/CURRENT-QA-NOTES.md).

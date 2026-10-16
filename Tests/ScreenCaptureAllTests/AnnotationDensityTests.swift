@@ -116,33 +116,16 @@ struct AnnotationDensityTests {
         ]
         let state = RegionSelectionState(snapshots: snapshots)
         try state.setCapturedImageFromFrozenSnapshots(for: CGRect(x: -200, y: 20, width: 260, height: 120))
+        let frame = try #require(state.capturedSelectionRect)
+        #expect(frame.maxX <= 0)
+        #expect(state.captureDisplay?.frameInAppKitScreenSpace == snapshots[0].display.frameInAppKitScreenSpace)
         let bytes = try pixels(#require(state.capturedImage))
         let transparent = stride(from: 3, to: bytes.count, by: 4).filter { bytes[$0] != 255 }.count
         #expect(transparent == 0)
     }
 
     @Test
-    func fractionalCompositePreservesFullSnapshotContentCoordinates() throws {
-        // Neither axis retains the nominal 5/3 density after rounding outward.
-        try expectCompositeMatchesFullSnapshots(
-            selection: CGRect(x: -71.35, y: -17.2, width: 135.7, height: 56.45),
-            expectedWidth: 227, expectedHeight: 95
-        )
-    }
-
-    @Test
-    func roundedCompositeUsesActualIndependentOutputDensities() throws {
-        // The source intersections are integral on both displays. This isolates
-        // output-allocation rounding from fractional source-crop expansion.
-        try expectCompositeMatchesFullSnapshots(
-            selection: CGRect(x: -71, y: -17, width: 131, height: 56),
-            expectedWidth: 219, expectedHeight: 94
-        )
-    }
-
-    private func expectCompositeMatchesFullSnapshots(
-        selection: CGRect, expectedWidth: Int, expectedHeight: Int
-    ) throws {
+    func attemptedSpanningCaptureUsesOnlyChosenDisplaysNativePixels() throws {
         let snapshots = [
             snapshot(
                 frame: CGRect(x: -120, y: -40, width: 120, height: 100),
@@ -154,57 +137,20 @@ struct AnnotationDensityTests {
             )
         ]
         let state = RegionSelectionState(snapshots: snapshots)
-        try state.setCapturedImageFromFrozenSnapshots(for: selection)
+        let selection = CGRect(x: -71.35, y: -17.2, width: 135.7, height: 56.45)
+        state.beginSelection(at: selection.origin)
+        state.updateSelection(to: CGPoint(x: selection.maxX, y: selection.maxY))
+        state.anchorSelection(at: CGPoint(x: selection.maxX, y: selection.maxY))
+        try state.setCapturedImageFromFrozenSnapshots(for: #require(state.selectionRect))
         let actual = try #require(state.capturedImage)
-        #expect(state.capturedSelectionRect == selection)
-        #expect(actual.width == expectedWidth)
-        #expect(actual.height == expectedHeight)
-
-        let referenceContext = try bitmapContext(width: expectedWidth, height: expectedHeight)
-        let scaleX = CGFloat(expectedWidth) / selection.width
-        let scaleY = CGFloat(expectedHeight) / selection.height
-        referenceContext.clip(to: CGRect(x: 0, y: 0, width: expectedWidth, height: expectedHeight))
-        for snapshot in snapshots {
-            let frame = snapshot.display.frameInAppKitScreenSpace
-            // Draw the entire source at its screen location, clipped by the
-            // output bitmap. No source .integral crop or intersection stretching.
-            referenceContext.draw(snapshot.image, in: CGRect(
-                x: (frame.minX - selection.minX) * scaleX,
-                y: (frame.minY - selection.minY) * scaleY,
-                width: frame.width * scaleX,
-                height: frame.height * scaleY
-            ))
-        }
-        let reference = try #require(referenceContext.makeImage())
-        let seamX = (0 - selection.minX) * scaleX
-        // Full images and cropped images can use different interpolation kernels.
-        // Compare color-weighted landmark centers within a quarter output pixel,
-        // not exact edge coverage. The integral-source control verifies the same
-        // tolerance without fractional source expansion.
-        let leftBarActual = try landmarkCenter(actual, including: { x, _ in CGFloat(x) < seamX - 3 }) { red, green, blue in
-            max(0, min(red, blue) - green)
-        }
-        let leftBarReference = try landmarkCenter(reference, including: { x, _ in CGFloat(x) < seamX - 3 }) { red, green, blue in
-            max(0, min(red, blue) - green)
-        }
-        let rightSearchRect = CGRect(
-            x: (35 - selection.minX) * scaleX,
-            y: CGFloat(expectedHeight) - (-5 - selection.minY) * scaleY,
-            width: 22 * scaleX, height: 12 * scaleY
-        )
-        let rightBlockActual = try landmarkCenter(actual, including: { x, y in
-            rightSearchRect.contains(CGPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5))
-        }) { red, green, blue in
-            max(0, green - max(red, blue))
-        }
-        let rightBlockReference = try landmarkCenter(reference, including: { x, y in
-            rightSearchRect.contains(CGPoint(x: CGFloat(x) + 0.5, y: CGFloat(y) + 0.5))
-        }) { red, green, blue in
-            max(0, green - max(red, blue))
-        }
-        #expect(abs(leftBarActual.x - leftBarReference.x) <= 0.25)
-        #expect(abs(rightBlockActual.x - rightBlockReference.x) <= 0.25)
-        #expect(abs(rightBlockActual.y - rightBlockReference.y) <= 0.25)
+        // Independent expected source pixels: outward-aligned x=48..<120,
+        // top-left y=20..<78 on the 120x100 1x snapshot. The adjacent screen's
+        // denser pixels must not change the crop size or resample its content.
+        #expect(state.capturedSelectionRect == CGRect(x: -72, y: -18, width: 72, height: 58))
+        #expect(actual.width == 72)
+        #expect(actual.height == 58)
+        let expected = try #require(snapshots[0].image.cropping(to: CGRect(x: 48, y: 20, width: 72, height: 58)))
+        #expect(try pixels(actual) == pixels(expected))
     }
 
     private func snapshot(frame: CGRect, image: CGImage) -> DisplaySnapshot {
@@ -260,27 +206,6 @@ struct AnnotationDensityTests {
         return Array(UnsafeBufferPointer(
             start: data.assumingMemoryBound(to: UInt8.self), count: image.width * image.height * 4
         ))
-    }
-
-    private func landmarkCenter(
-        _ image: CGImage, including: (Int, Int) -> Bool,
-        weight: (Int, Int, Int) -> Int
-    ) throws -> CGPoint {
-        let bytes = try pixels(image)
-        var totalWeight: CGFloat = 0
-        var weightedX: CGFloat = 0
-        var weightedY: CGFloat = 0
-        for y in 3..<(image.height - 3) {
-            for x in 3..<(image.width - 3) where including(x, y) {
-                let offset = (y * image.width + x) * 4
-                let contribution = CGFloat(weight(Int(bytes[offset]), Int(bytes[offset + 1]), Int(bytes[offset + 2])))
-                totalWeight += contribution
-                weightedX += (CGFloat(x) + 0.5) * contribution
-                weightedY += (CGFloat(y) + 0.5) * contribution
-            }
-        }
-        try #require(totalWeight > 0)
-        return CGPoint(x: weightedX / totalWeight, y: weightedY / totalWeight)
     }
 
     private func pixelDifference(
