@@ -5,6 +5,65 @@ import Testing
 
 @MainActor
 struct RendererTests {
+    @Test(arguments: ["Aa", "First\nSecond\nThird", "First\n\nThird", "Café\n日本語", String(repeating: "Wide ", count: 20)], AnnotationDensityTests.densities)
+    func liveTextEditorMatchesExport(text: String, density: AnnotationDensityTests.Density) throws {
+        let source = try whiteImage(width: 320, height: 240)
+        let frame = CGRect(x: 0, y: 0, width: 320 / density.x, height: 240 / density.y)
+        let state = try selection(image: source, frame: frame)
+        let canvas = try #require(state.annotationCanvas)
+        let anchor = CGPoint(x: 40 / density.x, y: 200 / density.y)
+        state.beginAnnotation(tool: .text, at: canvas.point(fromScreen: anchor), color: .red, lineWidth: 2, fontSize: 18)
+        let draft = try #require(state.draftAnnotation)
+        let editor = AnnotationTextEditor(
+            anchor: anchor, pixelSize: draft.creationPixelSizeInCanvas,
+            font: .systemFont(ofSize: 18, weight: .semibold), color: .red, commit: {}, exitMode: {}
+        )
+        editor.insertText(text, replacementRange: NSRange(location: 0, length: 0))
+        state.updateDraftText(editor.string)
+        state.commitDraftText()
+
+        // Exercise NSTextView's actual drawing, not Renderer twice. Convert the
+        // screen-sized live view back to image pixels using its creation basis.
+        let context = try bitmapContext(width: 320, height: 240)
+        context.draw(source, in: CGRect(x: 0, y: 0, width: 320, height: 240))
+        context.translateBy(x: editor.frame.minX * density.x, y: editor.frame.maxY * density.y)
+        context.scaleBy(x: editor.frame.width * density.x / editor.bounds.width, y: -editor.frame.height * density.y / editor.bounds.height)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        editor.draw(editor.bounds)
+        NSGraphicsContext.restoreGraphicsState()
+        let editing = try #require(context.makeImage())
+        try expectMatchingAnnotationFootprint(editing, export(state))
+
+        let preview = try drawOverlay(
+            state, pointSize: frame.size, pixelWidth: 320, pixelHeight: 240,
+            density: density.x, densityY: density.y
+        )
+        let inset = CGRect(x: 12, y: 12, width: 296, height: 216)
+        try expectMatchingAnnotationFootprint(
+            #require(preview.cropping(to: inset)), #require(export(state).cropping(to: inset))
+        )
+    }
+
+    @Test
+    func multilineTextKeepsFirstLineFixedAndPlacesRemainingLinesBelowIt() throws {
+        let source = try whiteImage(width: 240, height: 180)
+        let state = try selection(image: source, frame: CGRect(x: 0, y: 0, width: 240, height: 180))
+        state.beginAnnotation(tool: .text, at: CGPoint(x: 40, y: 40), color: .red, lineWidth: 2, fontSize: 18)
+        state.updateDraftText("First")
+        state.commitDraftText()
+        let firstLine = try export(state)
+        state.undoLastAnnotation()
+        state.beginAnnotation(tool: .text, at: CGPoint(x: 40, y: 40), color: .red, lineWidth: 2, fontSize: 18)
+        state.updateDraftText("First\nSecond\nThird")
+        state.commitDraftText()
+        let multiple = try export(state)
+        let firstRow = CGRect(x: 0, y: 0, width: 240, height: 62)
+        #expect(try pixels(#require(firstLine.cropping(to: firstRow))) == pixels(#require(multiple.cropping(to: firstRow))))
+        let lowerRows = try #require(multiple.cropping(to: CGRect(x: 30, y: 62, width: 150, height: 70)))
+        #expect(try redInkMask(pixels(lowerRows)).contains(true))
+    }
+
     @Test(arguments: OverlayAnnotationTool.allCases, [1.0, 2.0, 5.0 / 3.0])
     func overlayAndExportMatchAtNativePixelSize(tool: OverlayAnnotationTool, density: Double) throws {
         let source = try whiteImage(width: 240, height: 180)
@@ -279,7 +338,8 @@ struct RendererTests {
         pointSize: CGSize,
         pixelWidth: Int,
         pixelHeight: Int,
-        density: CGFloat = 1
+        density: CGFloat = 1,
+        densityY: CGFloat? = nil
     ) throws -> CGImage {
         let view = RegionCaptureOverlayView(
             frame: CGRect(origin: .zero, size: pointSize),
@@ -293,7 +353,7 @@ struct RendererTests {
             refresh: {}
         )
         let context = try bitmapContext(width: pixelWidth, height: pixelHeight)
-        context.scaleBy(x: density, y: density)
+        context.scaleBy(x: density, y: densityY ?? density)
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)

@@ -31,8 +31,9 @@ Use this checklist before treating the current native region-capture flow as hea
 - Before adding annotations, drag outside the selected region and confirm it reselects a new region.
 - After adding an annotation, confirm border resize handles are hidden and drag outside the selected region keeps reselection disabled.
 - Confirm the selected-region output dimensions match the expected Retina/backing scale.
-- Confirm `Esc` closes all overlay UI without copying or saving.
+- With an annotation tool active, confirm `Esc` discards the current draft and returns to Move without changing committed annotations; a second `Esc` closes all overlay UI without copying or saving.
 - Create Rectangle, Arrow, Draw, Highlight, and Text annotations.
+- For Text, verify the empty editor shows only a blinking caret, Return/Enter inserts a new line without committing, and long lines visibly overflow without soft wrapping. Compare live text, committed preview, and copied/saved PNG position and line spacing at 100% zoom. Commit via click-away, tool switch, Copy, and Save. Repeat on each available display. See `.scratch/text-annotation-ux/spec.md` for the full plan and QA status; automated coverage is not a manual QA pass.
 - Confirm Color and Stroke size controls affect newly created annotations.
 - Confirm Undo removes the active draft or most recent annotation.
 - Confirm overlay action tooltips expose existing shortcuts: Copy `Cmd-C`, Save `Cmd-S`, Undo `Cmd-Z`, and Cancel `Esc`.
@@ -46,6 +47,7 @@ Use this checklist before treating the current native region-capture flow as hea
 
 ## Recently Verified
 
+- 2026-10-16 text-annotation UX: automated tests (47 in 6 suites), release build, and diagnostic signing/launch passed. The user reported "looks good overall" after signed-app testing; a current-run 1306×936 annotated PNG export was verified. Exhaustive manual and extended-display coverage are not claimed. Evidence identity and remaining checks are in `.scratch/text-annotation-ux/qa.md`; overflow for all tools and selection/movement are separate planned follow-ups.
 - Region capture starts from a frozen snapshot-backed overlay instead of a live desktop view.
 - Selection, annotation preview, copy, and save use the frozen snapshot content.
 - Overlay launch flicker was not observed after the frozen snapshot flow change.

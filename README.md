@@ -64,7 +64,7 @@ For local capture debugging, use the signed debug bundle described below. `swift
 swift test
 ```
 
-The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, stable annotation mapping, all resize handles/tools, Move and clipping/reveal, annotation-only undo, and offscreen AppKit preview/export placement at 1×, 2×, and 5/3× density. It also routes synthetic mouse/keyboard events through the overlay, including export during resizing and replacement-selection restrictions. It uses synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, app windows, or system clipboard writes. It does not replace signed-app QA on real displays.
+The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, stable annotation mapping, all resize handles/tools, Move and clipping/reveal, annotation-only undo, and offscreen AppKit preview/export placement at 1×, 2×, and 5/3× density. It also routes synthetic mouse/keyboard events through the overlay, including export during resizing and replacement-selection restrictions. Text tests cover newline-only editing, overflow, draft cancellation, all commit paths, and live-editor/export pixel alignment at uniform and independent X/Y densities. A hidden, never-ordered AppKit window verifies Return, Esc, and focus-loss responder behavior. Tests use synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, visible app windows, or system clipboard writes. They do not replace signed-app QA on real displays.
 
 Some Swift 6.4 Command Line Tools builds fail to discover the bundled `TestingMacros` plugin when compiling the test module. If `swift test` reports that exact missing-plugin error, explicitly load the selected toolchain's plugin:
 
@@ -219,10 +219,12 @@ The current MVP is expected to satisfy:
 6. Arrow, text, rectangle, draw, highlight, color, stroke size, and undo work.
 7. `Cmd+C` or toolbar Copy copies final PNG and closes.
 8. `Cmd+S` or toolbar Save saves final PNG and closes.
-9. `Esc` cancels and closes.
+9. `Esc` discards the active annotation draft and returns to Move; in Move mode it cancels and closes without output.
 10. Output is correct on Retina and multi-display setups.
 
 The latest manual QA pass is recorded in [docs/CURRENT-QA-NOTES.md](docs/CURRENT-QA-NOTES.md).
+
+Text annotations start as a transparent editor showing only the caret and typed text. Return/Enter inserts a newline; long lines do not wrap and can overflow the selection while editing. Copy/save clips annotations to the capture bounds. Clicking away or switching tools commits non-empty text, as do Copy and Save. Esc discards the current draft without confirmation and exits the annotation tool, preserving committed annotations.
 
 Recent progress: the broken Preferences/config menu entry point was fixed under `.scratch/top-macos-app/issues/01-fix-config-menu-entrypoint.md`. Full status-menu click automation still needs local macOS Apple Events/Accessibility permission if automated QA is desired.
 

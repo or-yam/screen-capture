@@ -111,7 +111,7 @@ Current behavior:
 - Toolbar appears only after a valid region exists.
 - Move-tool edge/corner resizing remains available after annotations. Both resize and Move change only the selected bounds, leaving annotations anchored to frozen content.
 - Replacement selection remains unavailable while committed or draft annotations exist.
-- `Esc` cancels and closes without output.
+- `Esc` discards the active draft and exits the annotation tool to Move. In Move mode, `Esc` closes without output.
 - Copy/save success closes all overlay windows.
 
 The implementation stores one canonical selected rectangle on `RegionSelectionState` and coordinates all overlay windows through one session object.
@@ -147,6 +147,9 @@ Model behavior:
 - Tool preference widths/font sizes remain pixel-valued and are converted to canvas units at creation. Existing marks retain screen-space size across output-density changes.
 - Preview uses the live selection frame, while export maps through the committed crop's pixel-aligned frame and actual X/Y pixel dimensions. All overlays use the same canvas; clipping to a display never changes that frame.
 - Text is click-to-place and editable before commit.
+- The transparent plain-text `NSTextView` shows only caret/glyphs, grows right/down from its fixed top-left anchor, and breaks lines only on explicit newlines. Editing may overflow the selection; preview/export clips committed text to the selected bounds.
+- The editor and renderer share `AnnotationTextLayout` (TextKit layout, font, zero inset/padding, and unwrapped container) in the annotation's creation-time X/Y pixel basis. This keeps every line anchored consistently on commit and export.
+- Return/Enter inserts a newline. Click-away, focus loss, tool switch, Copy, and Save commit non-empty text; Esc discards the draft without confirmation and returns to Move.
 - No hardcoded sample text is inserted in the current overlay flow.
 - Undo removes the active draft or latest committed annotation, even when hidden. It never undoes resize or Move.
 
@@ -157,8 +160,8 @@ Copy and Save are explicit separate actions.
 - `Copy` writes final PNG data to `NSPasteboard` and closes on success.
 - `Save` writes final PNG data to the configured folder and closes on success.
 - Successful saves can show an app-owned transient confirmation with the saved filename and a Reveal in Finder action. This is enabled by default, can be disabled in Settings, and does not use macOS notifications.
-- `Esc` closes without output.
-- `Enter` has no MVP behavior.
+- `Esc` exits an active annotation tool first (discarding its draft); otherwise it closes without output.
+- `Enter` inserts a newline in the text editor; it is not an export/commit shortcut.
 - `defaultAction`, `copyAfterSave`, and `showFloatingToolbar` are not part of the current preferences model.
 
 The Preferences/config entry point is handled by a retained AppKit window controller instead of SwiftUI's private `showSettingsWindow:` target-action path, which did not reliably create a settings window in the accessory app shell.

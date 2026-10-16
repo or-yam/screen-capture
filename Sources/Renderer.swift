@@ -153,18 +153,18 @@ final class Renderer {
 
         context.saveGState()
         defer { context.restoreGState() }
-        context.translateBy(x: position.x, y: canvasHeight - position.y - annotation.fontSize)
-        context.scaleBy(x: annotation.creationPixelSizeInCanvas.width, y: annotation.creationPixelSizeInCanvas.height)
+        context.translateBy(x: position.x, y: canvasHeight - position.y)
+        context.scaleBy(x: annotation.creationPixelSizeInCanvas.width, y: -annotation.creationPixelSizeInCanvas.height)
         NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
-        let attributes: [NSAttributedString.Key: Any] = [
-            // Reconstruct the creation-time font, not a smaller font scaled up:
-            // macOS optical sizing changes glyph metrics at different font sizes.
-            .font: NSFont.systemFont(ofSize: annotation.fontSize / annotation.creationPixelSizeInCanvas.height, weight: .semibold),
-            .foregroundColor: annotation.color
-        ]
-        annotation.text.draw(at: .zero, withAttributes: attributes)
-        NSGraphicsContext.restoreGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        let layout = AnnotationTextLayout(
+            text: annotation.text,
+            font: .systemFont(ofSize: annotation.fontSize / annotation.creationPixelSizeInCanvas.height, weight: .semibold),
+            color: annotation.color
+        )
+        let glyphs = layout.manager.glyphRange(for: layout.container)
+        layout.manager.drawGlyphs(forGlyphRange: glyphs, at: .zero)
     }
 
     private func flip(_ rect: CGRect, canvasHeight: CGFloat, verticalScale: CGFloat) -> CGRect {

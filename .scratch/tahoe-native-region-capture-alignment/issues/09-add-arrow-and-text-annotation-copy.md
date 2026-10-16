@@ -47,3 +47,4 @@ Complete the MVP annotation tool set by adding arrow and text creation to the ov
 - Verified with `swift build`.
 - Fixed text draft persistence by preventing the generic mouse-up commit path from clearing active text drafts before the text field commits.
 - Verified with `swift build` and user-confirmed manual QA.
+- 2026-10-16: Text editing behavior is superseded by [Text Annotation UX](../../text-annotation-ux/spec.md): transparent multiline editor, Return/Enter inserts a newline, Esc discards the draft and returns to Move, and click-away/tool switch/Copy/Save commit. Signed-app QA for that change is tracked separately; earlier manual QA does not validate it.

@@ -71,7 +71,7 @@ As of 2026-07-02, the user wants a Glaze/Raycast-inspired look and feel and spec
 4. Make keyboard behavior discoverable.
    - Tooltips should include shortcuts for actions that already have them: `Copy (Cmd-C)`, `Save (Cmd-S)`, `Undo (Cmd-Z)`, `Close (Esc)`.
    - Add tool shortcuts only if they are simple and documented in QA; do not invent a large shortcut map in this slice.
-   - Ensure `Esc` closes popovers/drafts before ending the whole overlay where that distinction matters.
+    - Ensure `Esc` closes popovers/drafts before ending the whole overlay where that distinction matters. Text-tool behavior is specified in [Text Annotation UX](../../text-annotation-ux/spec.md): discard the active draft and return to Move, then a subsequent Esc closes the capture.
 
 5. Tighten status-menu commands.
    - Add a key equivalent for `Capture Region` if it can be represented cleanly in the status menu.

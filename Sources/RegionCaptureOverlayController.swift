@@ -905,7 +905,7 @@ final class RegionCaptureOverlayView: NSView {
     private var selectedStrokeIndex: Int
     private var colorPopover: NSPopover?
     private var strokePopover: NSPopover?
-    private var activeTextField: AnnotationTextField?
+    private var activeTextField: AnnotationTextEditor?
     private weak var shortcutHelpOwner: SolidActionButton?
     private static let availableColors: [NSColor] = [
         .systemRed,
@@ -967,6 +967,7 @@ final class RegionCaptureOverlayView: NSView {
         if newWindow == nil {
             colorPopover?.close()
             strokePopover?.close()
+            activeTextField?.finishEditing()
             activeTextField?.removeFromSuperview()
             activeTextField = nil
         }
@@ -1155,8 +1156,8 @@ final class RegionCaptureOverlayView: NSView {
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 53 {
             CaptureDiagnostics.log("escape window=\(window?.windowNumber ?? -1)", captureID: selectionState.captureID)
-            if activeTextField != nil {
-                cancelActiveTextField()
+            if activeAnnotationTool != nil || activeTextField != nil {
+                exitAnnotationMode()
                 return
             }
             close()
@@ -1747,38 +1748,23 @@ final class RegionCaptureOverlayView: NSView {
         let localSelectionRect = fullLocalSelectionRect.intersection(bounds)
         guard !localSelectionRect.isEmpty else { return }
 
-        let field = AnnotationTextField(
-            commit: { [weak self] in self?.commitActiveTextField() },
-            cancel: { [weak self] in self?.cancelActiveTextField() }
-        )
         let localPoint = convert(event.locationInWindow, from: nil)
-        let fieldWidth = min(max(localSelectionRect.width - (localPoint.x - localSelectionRect.minX), 120), min(280, localSelectionRect.width))
-        let fieldX = min(localPoint.x, localSelectionRect.maxX - fieldWidth)
-        let fieldPointInWindow = convert(NSPoint(x: fieldX, y: localPoint.y), to: nil)
-        let adjustedCanvasPoint = canvas.point(fromScreen: window?.convertPoint(toScreen: fieldPointInWindow) ?? fieldPointInWindow)
         selectionState.beginAnnotation(
             tool: .text,
-            at: adjustedCanvasPoint,
+            at: canvas.point(fromScreen: screenPoint(for: event)),
             color: selectedColor,
             lineWidth: selectedStrokeWidth,
             fontSize: selectedTextFontSize
         )
         guard let draft = selectionState.draftAnnotation else { return }
-        let fieldHeight = max(draft.fontSize + 10, 32)
-        field.font = .systemFont(ofSize: draft.fontSize / draft.creationPixelSizeInCanvas.height, weight: .semibold)
-        field.textColor = selectedColor
-        field.frame = NSRect(
-            x: fieldX,
-            y: max(localSelectionRect.minY, localPoint.y - fieldHeight),
-            width: fieldWidth,
-            height: fieldHeight
+        let field = AnnotationTextEditor(
+            anchor: localPoint,
+            pixelSize: draft.creationPixelSizeInCanvas,
+            font: .systemFont(ofSize: draft.fontSize / draft.creationPixelSizeInCanvas.height, weight: .semibold),
+            color: selectedColor,
+            commit: { [weak self] in self?.commitActiveTextField() },
+            exitMode: { [weak self] in self?.exitAnnotationMode() }
         )
-        // Use the same creation-time font and X/Y basis as export. Merely using a
-        // smaller font changes macOS glyph metrics. The frame stays screen-sized.
-        field.setBoundsSize(NSSize(
-            width: field.frame.width / draft.creationPixelSizeInCanvas.width,
-            height: field.frame.height / draft.creationPixelSizeInCanvas.height
-        ))
 
         activeTextField = field
         addSubview(field)
@@ -1788,18 +1774,34 @@ final class RegionCaptureOverlayView: NSView {
 
     private func commitActiveTextField() {
         guard let activeTextField else { return }
-        selectionState.updateDraftText(activeTextField.stringValue)
+        // Clear ownership before resigning focus: textDidEndEditing can reenter.
+        self.activeTextField = nil
+        activeTextField.finishEditing()
+        selectionState.updateDraftText(activeTextField.string)
         selectionState.commitDraftText()
         activeTextField.removeFromSuperview()
-        self.activeTextField = nil
         window?.makeFirstResponder(self)
         refresh()
     }
 
     private func cancelActiveTextField() {
-        activeTextField?.removeFromSuperview()
+        guard let field = activeTextField else { return }
         activeTextField = nil
+        field.finishEditing()
+        field.removeFromSuperview()
         selectionState.undoLastAnnotation()
+        window?.makeFirstResponder(self)
+        refresh()
+    }
+
+    private func exitAnnotationMode() {
+        cancelActiveTextField()
+        // Esc also exits a selected tool before any text has been placed.
+        if selectionState.draftAnnotation != nil {
+            selectionState.undoLastAnnotation()
+        }
+        activeAnnotationTool = nil
+        isMoveToolActive = true
         window?.makeFirstResponder(self)
         refresh()
     }
@@ -2108,46 +2110,81 @@ final class RegionCaptureOverlayView: NSView {
     private static let zKeyCode: UInt16 = 6
 }
 
-final class AnnotationTextField: NSTextField, NSTextFieldDelegate {
+final class AnnotationTextEditor: NSTextView, NSTextViewDelegate {
+    private let textLayout: AnnotationTextLayout
+    private let anchor: NSPoint
+    private let pixelSize: NSSize
     private let commit: () -> Void
-    private let cancel: () -> Void
+    private let exitMode: () -> Void
     private var isCompleting = false
 
-    init(commit: @escaping () -> Void, cancel: @escaping () -> Void) {
+    init(
+        anchor: NSPoint, pixelSize: NSSize, font: NSFont, color: NSColor,
+        commit: @escaping () -> Void, exitMode: @escaping () -> Void
+    ) {
+        self.anchor = anchor
+        self.pixelSize = pixelSize
+        textLayout = AnnotationTextLayout(font: font, color: color)
         self.commit = commit
-        self.cancel = cancel
-        super.init(frame: .zero)
+        self.exitMode = exitMode
+        super.init(frame: .zero, textContainer: textLayout.container)
 
         delegate = self
-        isBordered = true
-        isBezeled = true
-        drawsBackground = true
-        backgroundColor = NSColor.textBackgroundColor.withAlphaComponent(0.9)
+        drawsBackground = false
+        backgroundColor = .clear
+        textContainerInset = .zero
+        isRichText = false
+        importsGraphics = false
+        isAutomaticQuoteSubstitutionEnabled = false
+        isAutomaticDashSubstitutionEnabled = false
+        isAutomaticTextReplacementEnabled = false
+        isAutomaticSpellingCorrectionEnabled = false
+        isContinuousSpellCheckingEnabled = false
+        isGrammarCheckingEnabled = false
+        isHorizontallyResizable = false
+        isVerticallyResizable = false
         focusRingType = .none
-        lineBreakMode = .byTruncatingTail
-        usesSingleLineMode = true
+        self.font = font
+        textColor = color
+        insertionPointColor = color
+        typingAttributes = AnnotationTextLayout.attributes(font: font, color: color)
+        setAccessibilityLabel("Text annotation")
+        resizeToFitText()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36 || event.keyCode == 76 {
-            complete(commit)
-            return
-        }
-
-        if event.keyCode == 53 {
-            complete(cancel)
-            return
-        }
-
-        super.keyDown(with: event)
+    override func cancelOperation(_ sender: Any?) {
+        complete(exitMode)
     }
 
-    func controlTextDidEndEditing(_ obj: Notification) {
+    func textDidEndEditing(_ notification: Notification) {
+        // AppKit also posts this while programmatically editing a detached view.
+        // Only focus loss in a window completes a live annotation.
+        guard window != nil, notification.object as? NSTextView === self else { return }
         complete(commit)
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        resizeToFitText()
+    }
+
+    func finishEditing() {
+        isCompleting = true
+    }
+
+    private func resizeToFitText() {
+        let content = textLayout.contentSize
+        let lineHeight = textLayout.manager.defaultLineHeight(for: font ?? .systemFont(ofSize: 14))
+        // Extra room keeps the insertion point visible at the end of long lines.
+        let size = NSSize(width: max(24, content.width + 2), height: max(lineHeight, content.height))
+        let screenSize = NSSize(width: size.width * pixelSize.width, height: size.height * pixelSize.height)
+        frame = NSRect(x: anchor.x, y: anchor.y - screenSize.height, width: screenSize.width, height: screenSize.height)
+        // Never substitute a smaller font: optical glyph metrics vary by size.
+        setBoundsSize(size)
     }
 
     private func complete(_ action: () -> Void) {

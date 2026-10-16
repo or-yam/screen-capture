@@ -79,15 +79,15 @@ struct OverlayInteractionTests {
         let text = try #require(view.subviews.compactMap { $0 as? NSButton }.first { $0.accessibilityLabel() == "Text" })
         text.performClick(nil)
         view.mouseDown(with: try mouse(.leftMouseDown, at: start))
-        let field = try #require(view.subviews.compactMap { $0 as? AnnotationTextField }.first)
+        let field = try #require(view.subviews.compactMap { $0 as? AnnotationTextEditor }.first)
         #expect(state.draftAnnotation?.textPositionInCanvas == canvas.point(fromScreen: start))
-        field.stringValue = "Anchored text"
+        field.insertText("Anchored text", replacementRange: NSRange(location: 0, length: 0))
         let move = try #require(view.subviews.compactMap { $0 as? NSButton }.first { $0.accessibilityLabel() == "Move" })
         move.performClick(nil)
         #expect(state.draftAnnotation == nil)
         #expect(state.annotations.last?.text == "Anchored text")
         #expect(state.annotations.last?.textPositionInCanvas == canvas.point(fromScreen: start))
-        #expect(!view.subviews.contains { $0 is AnnotationTextField })
+        #expect(!view.subviews.contains { $0 is AnnotationTextEditor })
     }
 
     @Test
@@ -98,12 +98,172 @@ struct OverlayInteractionTests {
         let text = try #require(view.subviews.compactMap { $0 as? NSButton }.first { $0.accessibilityLabel() == "Text" })
         text.performClick(nil)
         view.mouseDown(with: try mouse(.leftMouseDown, at: CGPoint(x: 300, y: 260)))
-        let field = try #require(view.subviews.compactMap { $0 as? AnnotationTextField }.first)
+        let field = try #require(view.subviews.compactMap { $0 as? AnnotationTextEditor }.first)
         let draft = try #require(state.draftAnnotation)
         #expect(draft.creationPixelSizeInCanvas == CGSize(width: 0.5, height: 1))
         #expect(field.font?.pointSize == draft.fontSize / draft.creationPixelSizeInCanvas.height)
         #expect(field.bounds.width == field.frame.width * 2)
         #expect(field.bounds.height == field.frame.height)
+        field.insertText("First\nSecond", replacementRange: NSRange(location: 0, length: 0))
+        #expect(field.bounds.width == field.frame.width * 2)
+        #expect(field.bounds.height == field.frame.height)
+        #expect(field.frame.minX == 300)
+        #expect(field.frame.maxY == 260)
+    }
+
+    @Test
+    func transparentEditorInsertsNewlinesAndGrowsWithoutWrappingOrMovingItsAnchor() throws {
+        let state = try annotatedSelection()
+        let view = overlay(state)
+        let anchor = CGPoint(x: 300, y: 260)
+        let editor = try beginText(in: view, at: anchor)
+        #expect(!editor.drawsBackground)
+        #expect(!editor.isRichText)
+        #expect(editor.textContainerInset == .zero)
+        #expect(editor.textContainer?.lineFragmentPadding == 0)
+        #expect(editor.textContainer?.widthTracksTextView == false)
+
+        let firstHeight = editor.frame.height
+        let longLine = String(repeating: "Long line ", count: 12)
+        editor.insertText(longLine, replacementRange: NSRange(location: 0, length: 0))
+        #expect(state.draftAnnotation != nil, "after long line")
+        let selection = try #require(state.selectionRect)
+        #expect(editor.frame.maxX > selection.maxX)
+        #expect(editor.frame.height == firstHeight)
+        editor.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        #expect(state.draftAnnotation != nil, "after newline")
+        #expect(editor.string == longLine + "\n")
+        #expect(editor.frame.height > firstHeight)
+        editor.insertText("Second line", replacementRange: editor.selectedRange())
+        #expect(editor.string == longLine + "\nSecond line")
+        #expect(editor.frame.minX == anchor.x)
+        #expect(editor.frame.maxY == anchor.y)
+        #expect(state.draftAnnotation != nil)
+        #expect(state.annotations.count == 1)
+
+        try button("Move", in: view).performClick(nil)
+        #expect(state.annotations.last?.text == longLine + "\nSecond line")
+    }
+
+    @Test(arguments: [true, false])
+    func escapeDiscardsOnlyDraftAndReturnsToMoveBeforeClosing(fromEditor: Bool) throws {
+        let state = try annotatedSelection()
+        let original = try #require(state.annotations.first)
+        var closeCount = 0
+        let view = overlay(state, close: { closeCount += 1 })
+        let editor = try beginText(in: view)
+        editor.insertText("Discard\nthis", replacementRange: NSRange(location: 0, length: 0))
+        if fromEditor {
+            editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        } else {
+            view.keyDown(with: try escape())
+        }
+        // Resigning focus after cancellation must not commit or remove old ink.
+        editor.textDidEndEditing(Notification(name: NSText.didEndEditingNotification, object: editor))
+        view.refreshState()
+        #expect(state.draftAnnotation == nil)
+        #expect(state.annotations.map(\.id) == [original.id])
+        #expect(!view.subviews.contains { $0 is AnnotationTextEditor })
+        #expect(try button("Move", in: view).isActive)
+        #expect(try !button("Text", in: view).isActive)
+        #expect(closeCount == 0)
+        view.keyDown(with: try escape())
+        #expect(closeCount == 1)
+    }
+
+    @Test
+    func escapeExitsSelectedTextToolWithoutAnEditor() throws {
+        let state = try annotatedSelection()
+        var closeCount = 0
+        let view = overlay(state, close: { closeCount += 1 })
+        view.refreshState()
+        try button("Text", in: view).performClick(nil)
+        view.keyDown(with: try escape())
+        view.refreshState()
+        #expect(try button("Move", in: view).isActive)
+        #expect(closeCount == 0)
+        view.keyDown(with: try escape())
+        #expect(closeCount == 1)
+    }
+
+    @Test
+    func undoDiscardsTextDraftWithoutDeletingCommittedInkOrExitingTextTool() throws {
+        let state = try annotatedSelection()
+        let original = try #require(state.annotations.first)
+        let view = overlay(state)
+        let editor = try beginText(in: view)
+        editor.insertText("Draft", replacementRange: editor.selectedRange())
+        view.keyDown(with: try command("z", keyCode: 6))
+        view.refreshState()
+        #expect(state.draftAnnotation == nil)
+        #expect(state.annotations.map(\.id) == [original.id])
+        #expect(!view.subviews.contains { $0 is AnnotationTextEditor })
+        #expect(try button("Text", in: view).isActive)
+        // Once the draft is gone, the next Undo retains its normal meaning.
+        view.keyDown(with: try command("z", keyCode: 6))
+        #expect(state.annotations.isEmpty)
+    }
+
+    @Test(arguments: ["click-away", "Copy", "Save", "c", "s", "Move", "Arrow"])
+    func multilineTextCommitsOnceThroughEveryCompletionPath(path: String) throws {
+        let state = try annotatedSelection()
+        var output: Data?
+        let view = overlay(state, copy: { output = $0 }, save: { output = $0 })
+        let editor = try beginText(in: view)
+        editor.insertText("First\nSecond\nThird", replacementRange: NSRange(location: 0, length: 0))
+        switch path {
+        case "click-away":
+            view.mouseDown(with: try mouse(.leftMouseDown, at: CGPoint(x: 20, y: 20)))
+        case "c", "s":
+            view.keyDown(with: try command(path, keyCode: path == "c" ? 8 : 1))
+        default:
+            try button(path, in: view).performClick(nil)
+        }
+        editor.textDidEndEditing(Notification(name: NSText.didEndEditingNotification, object: editor))
+        #expect(state.annotations.count == 2)
+        #expect(state.annotations.last?.text == "First\nSecond\nThird")
+        #expect(state.draftAnnotation == nil)
+        #expect(!view.subviews.contains { $0 is AnnotationTextEditor })
+        if ["Copy", "Save", "c", "s"].contains(path) {
+            #expect(output != nil)
+        }
+    }
+
+    @Test
+    func windowResponderRoutesReturnEscapeAndFocusLoss() throws {
+        _ = NSApplication.shared
+        let state = try annotatedSelection()
+        let view = overlay(state)
+        // Never order the window onscreen or request desktop automation access.
+        let window = NSWindow(contentRect: view.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = view
+        defer {
+            window.contentView = nil
+            window.close()
+        }
+        let editor = try beginText(in: view)
+        #expect(window.firstResponder === editor)
+        editor.insertText("First", replacementRange: editor.selectedRange())
+        editor.keyDown(with: try key("\r", keyCode: 36, windowNumber: window.windowNumber))
+        editor.insertText("Second", replacementRange: editor.selectedRange())
+        #expect(editor.string == "First\nSecond")
+        #expect(state.draftAnnotation != nil)
+        #expect(state.annotations.count == 1)
+        #expect(window.makeFirstResponder(view))
+        #expect(state.annotations.last?.text == "First\nSecond")
+        #expect(state.annotations.count == 2)
+
+        view.mouseDown(with: try mouse(.leftMouseDown, at: CGPoint(x: 300, y: 260)))
+        let discarded = try #require(view.subviews.compactMap { $0 as? AnnotationTextEditor }.first)
+        #expect(window.firstResponder === discarded)
+        discarded.insertText("Discard", replacementRange: discarded.selectedRange())
+        discarded.keyDown(with: try key("\u{1b}", keyCode: 53, windowNumber: window.windowNumber))
+        view.refreshState()
+        #expect(state.draftAnnotation == nil)
+        #expect(state.annotations.count == 2)
+        #expect(try button("Move", in: view).isActive)
+        #expect(window.firstResponder === view)
     }
 
     @Test
@@ -196,15 +356,42 @@ struct OverlayInteractionTests {
 
     private func overlay(
         _ state: RegionSelectionState,
+        close: @escaping () -> Void = {},
         copy: @escaping (Data) -> Void = { _ in },
         save: @escaping (Data) -> Void = { _ in },
         selectionCompleted: @escaping (CGRect) -> Void = { _ in }
     ) -> RegionCaptureOverlayView {
         RegionCaptureOverlayView(
             frame: CGRect(x: 0, y: 0, width: 600, height: 500), selectionState: state,
-            close: {}, copy: copy, save: save, selectionCompleted: selectionCompleted,
+            close: close, copy: copy, save: save, selectionCompleted: selectionCompleted,
             defaultAnnotationColor: .red, defaultAnnotationStrokeWidth: 2, refresh: {}
         )
+    }
+
+    private func button(_ label: String, in view: RegionCaptureOverlayView) throws -> SolidActionButton {
+        try #require(view.subviews.compactMap { $0 as? SolidActionButton }.first { $0.accessibilityLabel() == label })
+    }
+
+    private func beginText(
+        in view: RegionCaptureOverlayView, at point: CGPoint = CGPoint(x: 300, y: 260)
+    ) throws -> AnnotationTextEditor {
+        view.refreshState()
+        try button("Text", in: view).performClick(nil)
+        view.refreshState()
+        view.mouseDown(with: try mouse(.leftMouseDown, at: point))
+        return try #require(view.subviews.compactMap { $0 as? AnnotationTextEditor }.first)
+    }
+
+    private func escape() throws -> NSEvent {
+        try key("\u{1b}", keyCode: 53)
+    }
+
+    private func key(_ character: String, keyCode: UInt16, windowNumber: Int = 0) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: windowNumber, context: nil, characters: character,
+            charactersIgnoringModifiers: character, isARepeat: false, keyCode: keyCode
+        ))
     }
 
     private func mouse(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
