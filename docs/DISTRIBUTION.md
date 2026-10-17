@@ -134,6 +134,10 @@ out, freezes the result, and leaves a preview DMG mounted for inspection. CI can
 which is why its output is committed. `Scripts/package_app.sh` fails rather than shipping a
 bare window if the assets are missing.
 
+Volume decoration (custom icon, hidden flags, pruning mount bookkeeping such as `.fseventsd`)
+lives in `Scripts/dmg_volume.sh`, which both scripts source, so the image the author inspects
+is decorated exactly like the image that ships.
+
 Two Finder behaviours are load-bearing and are why the packaging script does things the long
 way:
 

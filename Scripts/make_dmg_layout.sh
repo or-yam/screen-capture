@@ -92,12 +92,6 @@ trap cleanup EXIT
 [[ "$MOUNT_DIR" == "/Volumes/$APP_NAME" ]] ||
   fail "mounted at $MOUNT_DIR instead of /Volumes/$APP_NAME; eject other copies of $APP_NAME and re-run"
 
-# Volume icon: Finder honours a custom icon only when the volume root carries the
-# custom-icon flag and the icon file has the icnC creator code.
-cp "$ROOT/Resources/AppIcon.icns" "$MOUNT_DIR/.VolumeIcon.icns"
-SetFile -c icnC "$MOUNT_DIR/.VolumeIcon.icns"
-SetFile -a C "$MOUNT_DIR"
-
 echo "Asking Finder to lay out the window"
 WINDOW_RIGHT=$((WINDOW_LEFT + WINDOW_WIDTH))
 WINDOW_BOTTOM=$((WINDOW_TOP + WINDOW_HEIGHT + WINDOW_TITLEBAR))
@@ -134,6 +128,11 @@ done
 sync
 
 cp "$MOUNT_DIR/.DS_Store" "$BACKGROUND_DIR/DotDSStore"
+
+# Decorate exactly as package_app.sh does, so the preview image is the shipped image.
+# shellcheck source=Scripts/dmg_volume.sh
+source "$ROOT/Scripts/dmg_volume.sh"
+decorate_dmg_volume "$MOUNT_DIR" "$ROOT/Resources/AppIcon.icns"
 
 hdiutil detach "$MOUNTED_DEVICE" >/dev/null
 MOUNTED_DEVICE=""

@@ -165,19 +165,9 @@ MOUNTED_DEVICE=$(hdiutil attach "$RW_DMG" -readwrite -noverify -noautoopen -nobr
 [[ -n "$MOUNTED_DEVICE" ]] || fail "could not mount $RW_DMG"
 
 cp "$DMG_ASSET_DIR/DotDSStore" "$DMG_MOUNT/.DS_Store"
-# Finder shows a custom volume icon only when the volume root carries the
-# custom-icon flag and the icon file has the icnC creator code.
-cp "$ROOT/Resources/AppIcon.icns" "$DMG_MOUNT/.VolumeIcon.icns"
-SetFile -c icnC "$DMG_MOUNT/.VolumeIcon.icns"
-SetFile -a C "$DMG_MOUNT"
-
-# Dot-prefixed names are hidden by convention; the hidden flag keeps them out of the
-# way on a Mac set to show hidden files too. `.fseventsd` is mount bookkeeping and
-# has no business shipping inside the image.
-chflags hidden "$DMG_MOUNT/.VolumeIcon.icns" "$DMG_MOUNT/.background"
-for leftover in .fseventsd .Trashes .Spotlight-V100; do
-  [[ -e "$DMG_MOUNT/$leftover" ]] && rm -rf "$DMG_MOUNT/$leftover"
-done
+# shellcheck source=Scripts/dmg_volume.sh
+source "$ROOT/Scripts/dmg_volume.sh"
+decorate_dmg_volume "$DMG_MOUNT" "$ROOT/Resources/AppIcon.icns"
 
 chmod -Rf go-w "$DMG_MOUNT"
 sync
