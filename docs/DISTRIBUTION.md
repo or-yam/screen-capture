@@ -61,7 +61,7 @@ ScreenCaptureAll-0.1.0-universal.zip
 ScreenCaptureAll-0.1.0-universal-SHA256SUMS.txt
 ```
 
-The DMG is the primary download: it contains the app, an `Applications` symlink for drag-install, and a copy of `docs/INSTALL.md`. The ZIP is the alternative for people who prefer it. Both contain the same universal (arm64 + x86_64) app.
+The DMG is the primary download: it carries a custom volume icon and a Finder window with a background image, the app, and an `Applications` symlink for drag-install. The ZIP is the alternative for people who prefer it. Both contain the same universal (arm64 + x86_64) app. Neither includes a copy of `docs/INSTALL.md`; the window points at the drag target instead.
 
 The DMG does **not** bypass Gatekeeper. It is ad-hoc signed, so testers still approve it once in Privacy & Security. A DMG is worth shipping because it makes the install target obvious; it is not a substitute for notarization.
 
@@ -89,7 +89,9 @@ The script should:
 - Set executable permissions.
 - Strip extended attributes before signing or zipping.
 - Ad-hoc sign the app for personal use.
-- Zip the app bundle and build a drag-install DMG.
+- Zip the app bundle.
+- Build a drag-install DMG, decorating a writable image with the volume icon and the
+  frozen Finder layout before converting it to a compressed read-only image.
 - Write SHA-256 checksums and verify both archives before touching previous outputs.
 
 `ARCHES="arm64 x86_64"` produces a universal build. Release builds always use it; a bare local run stays single-architecture to keep iteration fast. The version defaults to [VERSION](../VERSION).
@@ -114,6 +116,36 @@ Leftover `.package.*` staging directories from a crashed run are reported but no
 
 Icon handling is mandatory: the script requires `Resources/AppIcon.icns`, copies it to `Contents/Resources/AppIcon.icns`, and sets `CFBundleIconFile` to `AppIcon`. Regenerate the asset first with `bash Scripts/build_app_icon.sh` if it is missing. `Resources/AppIcon-Dark.icns` is an alternative asset for future dark-appearance support; it is not copied and not automatic appearance switching.
 
+### DMG window layout
+
+The DMG window (size, icon positions, background picture) is a `.DS_Store`, and only Finder
+writes those. The layout is therefore frozen in `Resources/dmg/` and copied into every image
+rather than generated during packaging:
+
+- `background.png` and `background@2x.png`: window artwork, rendered by
+  `Scripts/build_dmg_background.sh` from `Scripts/generate_dmg_background.swift`.
+  `tiffutil -cathidpicheck` combines the pair at packaging time so Retina windows are sharp.
+- `DotDSStore`: the layout file, named with the dot spelled out because `.gitignore` ignores
+  `.DS_Store` anywhere in the tree. `package_app.sh` copies it in as `.DS_Store`.
+
+Regenerate both with `bash Scripts/make_dmg_layout.sh`. That is the one packaging step needing
+a GUI session: it mounts a writable image, sets the volume icon, asks Finder to lay the window
+out, freezes the result, and leaves a preview DMG mounted for inspection. CI cannot run it,
+which is why its output is committed. `Scripts/package_app.sh` fails rather than shipping a
+bare window if the assets are missing.
+
+Two Finder behaviours are load-bearing and are why the packaging script does things the long
+way:
+
+- `hdiutil create -srcfolder` discards `.DS_Store`, so the layout file is copied onto the
+  mounted volume instead of into the staging directory.
+- macOS deletes an *invalid* `.DS_Store` when the volume unmounts, so the layout file must be
+  one Finder wrote. A hand-made placeholder silently disappears.
+
+Window geometry is duplicated between the Swift renderer and `Scripts/make_dmg_layout.sh`
+together with the measured `position`-setter offset; change both together and look at the
+preview before committing a new `DotDSStore`.
+
 Use these app metadata values:
 
 - `CFBundleName`: `ScreenCaptureAll`
@@ -133,13 +165,13 @@ Use these app metadata values:
 
 ### Ad-Hoc Signing
 
-Use this for personal builds:
+Use this for personal builds, and it is what the current friend-testing releases ship with:
 
 ```bash
 codesign --force --sign - ScreenCaptureAll.app
 ```
 
-This gives the bundle a code signature without requiring an Apple Developer account. It does not remove all first-run friction for downloaded builds.
+This gives the bundle a code signature without requiring an Apple Developer account. It does not remove first-run friction for downloaded builds, and because the signature is derived from the binary, every build is a new identity to macOS — both Gatekeeper and the Screen Recording permission entry see it as a different app.
 
 ### Developer ID Signing And Notarization
 
@@ -151,20 +183,22 @@ High-level flow:
 
 ```bash
 codesign --force --timestamp --options runtime --sign "Developer ID Application: Name (TEAMID)" ScreenCaptureAll.app
+ditto -c -k --keepParent ScreenCaptureAll.app ScreenCaptureAll.zip
 xcrun notarytool submit ScreenCaptureAll.zip --keychain-profile "notary-profile" --wait
 xcrun stapler staple ScreenCaptureAll.app
 ```
 
 Notarized DMG or ZIP is the best public-download experience because it removes the Gatekeeper override, but it is not required to share a build with friends.
 
-If notarization is added, prefer `--options runtime` on the app *and* the nested binary, keep the DMG as the notarized artifact, and stamp the app before building the DMG:
+If notarization is added, note three constraints before choosing an order. The notary service accepts only a ZIP, a UDIF disk image, or a signed flat installer package — never a bare `.app`. Gatekeeper ingests a disk image's ticket when Finder opens it, not when something mounts it with `hdiutil`, and the ZIP path never opens a disk image at all. So notarize and staple the app in its own right, then repeat for the DMG:
 
-```bash
-xcrun notarytool submit ScreenCaptureAll-<version>-universal.dmg --keychain-profile "notary-profile" --wait
-xcrun stapler staple dist/ScreenCaptureAll.app
-```
+1. Sign the app, then notarize and staple it, as above.
+2. Build the shippable ZIP from the *stapled* app.
+3. Build the DMG from the *stapled* app, sign the DMG, notarize it, and staple it.
 
-Then rebuild the DMG, because stapling changes the app bytes. CI needs `APP_STORE_CONNECT_API_KEY_P8`, `APP_STORE_CONNECT_KEY_ID`, and `APP_STORE_CONNECT_ISSUER_ID` as secrets, and a Developer ID certificate imported into a temporary keychain. None of this is set up today.
+The DMG does not have to be signed to be notarized, but Apple's packaging documentation says to sign it, and doing so puts the image itself in the ticket. Do not re-sign or edit either artifact after stapling — that invalidates the ticket. Tickets are keyed by cdhash, so any rebuild needs a fresh notarization: an already-published ad-hoc release cannot be retro-notarized and must be re-signed and rebuilt.
+
+CI needs `APP_STORE_CONNECT_API_KEY_P8`, `APP_STORE_CONNECT_KEY_ID`, and `APP_STORE_CONNECT_ISSUER_ID` as secrets, plus a Developer ID certificate imported into a temporary keychain. None of this is set up today. Notarization takes minutes (98% under 15), is capped at 75 submissions per day, and `notarytool submit` needs `--wait --timeout` so a release job cannot hang.
 
 ## Permissions Notes
 

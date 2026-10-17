@@ -63,7 +63,13 @@ STAGING_DIR=$(mktemp -d "$DIST_DIR/.package.XXXXXX")
 # Set when a rollback could not fully restore the previous outputs; the
 # staging directory then holds the backups and must survive for recovery.
 KEEP_STAGING=0
+# Set while a writable disk image is attached, so a failure cannot leave a
+# volume mounted in the user's Finder.
+MOUNTED_DEVICE=""
 cleanup_staging() {
+  if [[ -n "$MOUNTED_DEVICE" ]]; then
+    hdiutil detach "$MOUNTED_DEVICE" >/dev/null 2>&1 || true
+  fi
   if [[ "$KEEP_STAGING" == 1 ]]; then
     echo "Keeping staging directory for recovery: $STAGING_DIR" >&2
     return
@@ -125,12 +131,61 @@ echo "Creating $ZIP_NAME"
 )
 
 echo "Creating $DMG_NAME"
+# The window layout (background picture, icon positions, window size) lives in a
+# `.DS_Store`, which only Finder can write, so those assets are committed and
+# frozen rather than generated here. Regenerate them with
+# `bash Scripts/make_dmg_layout.sh`, which needs a GUI session.
+DMG_ASSET_DIR="$ROOT/Resources/dmg"
+for asset in background.png background@2x.png DotDSStore; do
+  [[ -f "$DMG_ASSET_DIR/$asset" ]] ||
+    fail "missing $DMG_ASSET_DIR/$asset; run: bash Scripts/make_dmg_layout.sh"
+done
+[[ -x /usr/bin/SetFile ]] || fail "SetFile is missing; install the Xcode Command Line Tools"
+
 mkdir "$STAGING_DIR/dmg"
 ditto "$APP_BUNDLE" "$STAGING_DIR/dmg/$APP_NAME.app"
 ln -s /Applications "$STAGING_DIR/dmg/Applications"
-cp "$ROOT/docs/INSTALL.md" "$STAGING_DIR/dmg/Read Me.txt"
+mkdir "$STAGING_DIR/dmg/.background"
+# One file holding both resolutions; Finder picks the one matching the display.
+tiffutil -cathidpicheck "$DMG_ASSET_DIR/background.png" "$DMG_ASSET_DIR/background@2x.png" \
+  -out "$STAGING_DIR/dmg/.background/background.tiff"
+
+# A volume icon and a Finder layout can only be set on a mounted read-write image,
+# so build one, decorate it, then convert it to the compressed read-only DMG.
+# `hdiutil create -srcfolder` discards `.DS_Store`, so the layout file is copied onto
+# the mounted volume rather than into the staging directory.
+RW_DMG="$STAGING_DIR/$ASSET_NAME.rw.dmg"
 hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING_DIR/dmg" \
-  -format UDZO -ov "$STAGING_DIR/$DMG_NAME"
+  -fs HFS+ -format UDRW -ov "$RW_DMG" >/dev/null
+
+DMG_MOUNT="$STAGING_DIR/dmg-mount"
+mkdir "$DMG_MOUNT"
+MOUNTED_DEVICE=$(hdiutil attach "$RW_DMG" -readwrite -noverify -noautoopen -nobrowse \
+  -mountpoint "$DMG_MOUNT" | awk '/^\/dev\//{print $1; exit}')
+[[ -n "$MOUNTED_DEVICE" ]] || fail "could not mount $RW_DMG"
+
+cp "$DMG_ASSET_DIR/DotDSStore" "$DMG_MOUNT/.DS_Store"
+# Finder shows a custom volume icon only when the volume root carries the
+# custom-icon flag and the icon file has the icnC creator code.
+cp "$ROOT/Resources/AppIcon.icns" "$DMG_MOUNT/.VolumeIcon.icns"
+SetFile -c icnC "$DMG_MOUNT/.VolumeIcon.icns"
+SetFile -a C "$DMG_MOUNT"
+
+# Dot-prefixed names are hidden by convention; the hidden flag keeps them out of the
+# way on a Mac set to show hidden files too. `.fseventsd` is mount bookkeeping and
+# has no business shipping inside the image.
+chflags hidden "$DMG_MOUNT/.VolumeIcon.icns" "$DMG_MOUNT/.background"
+for leftover in .fseventsd .Trashes .Spotlight-V100; do
+  [[ -e "$DMG_MOUNT/$leftover" ]] && rm -rf "$DMG_MOUNT/$leftover"
+done
+
+chmod -Rf go-w "$DMG_MOUNT"
+sync
+
+hdiutil detach "$MOUNTED_DEVICE" >/dev/null
+MOUNTED_DEVICE=""
+hdiutil convert "$RW_DMG" -format UDZO -ov -o "$STAGING_DIR/$DMG_NAME" >/dev/null
+rm -f "$RW_DMG"
 hdiutil verify "$STAGING_DIR/$DMG_NAME"
 (
   cd "$STAGING_DIR"
