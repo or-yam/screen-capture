@@ -67,6 +67,8 @@ The DMG does **not** bypass Gatekeeper. It is ad-hoc signed, so testers still ap
 
 Release automation lives in `.github/workflows/build.yml`: pull requests and `main` builds test and package, and a `v*` tag publishes the release.
 
+The publish step is a single `gh release create` with the assets and deliberately **no** `--draft` flag. GitHub CLI uploads assets into a temporary draft and then publishes that exact release, deleting the draft if an upload fails. Passing `--draft` explicitly disables that cleanup, which can strand a partial release that a later retry would then publish by tag. The job also fails up front if any release, draft or published, already exists for the tag, rather than guessing which one to reuse.
+
 ## Packaging Decision
 
 Start with a small script, not an Xcode project conversion.
@@ -88,9 +90,25 @@ The script should:
 - Strip extended attributes before signing or zipping.
 - Ad-hoc sign the app for personal use.
 - Zip the app bundle and build a drag-install DMG.
-- Write SHA-256 checksums and verify the archives before replacing previous outputs.
+- Write SHA-256 checksums and verify both archives before touching previous outputs.
 
 `ARCHES="arm64 x86_64"` produces a universal build. Release builds always use it; a bare local run stays single-architecture to keep iteration fast. The version defaults to [VERSION](../VERSION).
+
+### Failure behavior
+
+The four outputs (app bundle, DMG, ZIP, checksums) are replaced as one transaction:
+
+```text
+build + verify in dist/.package.XXXXXX/     # nothing in dist/ is touched yet
+  move current outputs aside           -> backup/
+  move new outputs in, one rename each
+  on any failure: remove what this run installed, move the backups back
+  if even that fails: keep the staging dir and say so
+```
+
+Every step is a rename inside `dist/`, so it either happens or it does not. A run that fails partway leaves either the complete previous set or the complete new set — never a new app bundle next to a stale DMG. The worst case is a restored-but-warned state where the staging directory is deliberately kept for manual recovery, and the script prints its path.
+
+One caveat: only the current run's filenames are replaced. Archives from an earlier version or a different architecture stay in `dist/`, so check filenames before uploading by hand. CI starts from a clean checkout and publishes only the files it just built.
 
 Icon handling is mandatory: the script requires `Resources/AppIcon.icns`, copies it to `Contents/Resources/AppIcon.icns`, and sets `CFBundleIconFile` to `AppIcon`. Regenerate the asset first with `bash Scripts/build_app_icon.sh` if it is missing. `Resources/AppIcon-Dark.icns` is an alternative asset for future dark-appearance support; it is not copied and not automatic appearance switching.
 

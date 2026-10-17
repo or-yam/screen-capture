@@ -60,7 +60,17 @@ fi
 
 mkdir -p "$DIST_DIR"
 STAGING_DIR=$(mktemp -d "$DIST_DIR/.package.XXXXXX")
-trap 'rm -rf "$STAGING_DIR"' EXIT
+# Set when a rollback could not fully restore the previous outputs; the
+# staging directory then holds the backups and must survive for recovery.
+KEEP_STAGING=0
+cleanup_staging() {
+  if [[ "$KEEP_STAGING" == 1 ]]; then
+    echo "Keeping staging directory for recovery: $STAGING_DIR" >&2
+    return
+  fi
+  rm -rf "$STAGING_DIR"
+}
+trap cleanup_staging EXIT
 APP_BUNDLE="$STAGING_DIR/$APP_NAME.app"
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 
@@ -128,10 +138,62 @@ hdiutil verify "$STAGING_DIR/$DMG_NAME"
   shasum -a 256 -c "$CHECKSUM_NAME"
 )
 
-# Only replace previous outputs after both archives have passed verification.
-rm -rf "$DIST_DIR/$APP_NAME.app"
-mv "$APP_BUNDLE" "$DIST_DIR/$APP_NAME.app"
-mv "$STAGING_DIR/$ZIP_NAME" "$STAGING_DIR/$DMG_NAME" "$STAGING_DIR/$CHECKSUM_NAME" "$DIST_DIR/"
+# Replace the whole output set as one transaction. Every move is a rename
+# inside dist/, so a failure halfway through can be rolled back instead of
+# leaving a new app bundle next to a stale DMG.
+OUTPUT_NAMES=("$APP_NAME.app" "$ZIP_NAME" "$DMG_NAME" "$CHECKSUM_NAME")
+BACKUP_DIR="$STAGING_DIR/backup"
+mkdir -p "$BACKUP_DIR"
+
+# Names successfully displaced into BACKUP_DIR, and names successfully
+# installed into dist/ during this run.
+PREVIOUS_OUTPUTS=()
+INSTALLED_OUTPUTS=()
+
+rollback_outputs() {
+  # `local` keeps this loop variable from clobbering the caller's, which would
+  # otherwise misreport which output failed in the message that follows.
+  local output_name
+  local restore_failed=0
+  # Remove only what this run installed, so untouched originals survive.
+  if [[ ${#INSTALLED_OUTPUTS[@]} -gt 0 ]]; then
+    for output_name in "${INSTALLED_OUTPUTS[@]}"; do
+      rm -rf "$DIST_DIR/$output_name"
+    done
+  fi
+  # Guarded because expanding an empty array is an error under `set -u` in
+  # bash 3.2, which is still /bin/bash on macOS and on the CI runner.
+  if [[ ${#PREVIOUS_OUTPUTS[@]} -gt 0 ]]; then
+    for output_name in "${PREVIOUS_OUTPUTS[@]}"; do
+      if ! mv "$BACKUP_DIR/$output_name" "$DIST_DIR/$output_name"; then
+        restore_failed=1
+        echo "WARNING: could not restore $output_name from $BACKUP_DIR" >&2
+      fi
+    done
+  fi
+  if [[ "$restore_failed" == 1 ]]; then
+    KEEP_STAGING=1
+  fi
+}
+
+for output_name in "${OUTPUT_NAMES[@]}"; do
+  if [[ -e "$DIST_DIR/$output_name" ]]; then
+    if ! mv "$DIST_DIR/$output_name" "$BACKUP_DIR/$output_name"; then
+      rollback_outputs
+      fail "Could not stage existing $output_name for replacement; outputs restored to previous state"
+    fi
+    PREVIOUS_OUTPUTS+=("$output_name")
+  fi
+done
+
+for output_name in "${OUTPUT_NAMES[@]}"; do
+  if ! mv "$STAGING_DIR/$output_name" "$DIST_DIR/$output_name"; then
+    rollback_outputs
+    fail "Could not install $output_name; outputs restored to previous state"
+  fi
+  INSTALLED_OUTPUTS+=("$output_name")
+done
+
 echo "Created: $DIST_DIR/$APP_NAME.app"
 echo "Created: $DIST_DIR/$ZIP_NAME"
 echo "Created: $DIST_DIR/$DMG_NAME"

@@ -92,14 +92,30 @@ jobs:
         working-directory: dist
         run: sha256sum -c *-SHA256SUMS.txt
 
-      - name: Create draft with assets, then publish
+      - name: Refuse to reuse an existing release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "A release for $RELEASE_TAG already exists (draft or published)." >&2
+            echo "Delete it first, or bump VERSION and push a new tag." >&2
+            exit 1
+          fi
+
+      - name: Publish release with assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          # No --draft: gh uploads assets into a temporary draft and then
+          # publishes that exact release id, deleting the draft if an upload
+          # fails. Adding --draft disables that cleanup and can strand a
+          # partial release that a later retry would publish by tag.
           gh release create "$RELEASE_TAG" \
             dist/*.dmg dist/*.zip dist/*-SHA256SUMS.txt \
-            --verify-tag --draft --title "Screen Capture All $RELEASE_TAG" \
+            --verify-tag \
+            --title "Screen Capture All $RELEASE_TAG" \
             --generate-notes --notes-file docs/RELEASE-NOTES.md
-          gh release edit "$RELEASE_TAG" --draft=false --latest
