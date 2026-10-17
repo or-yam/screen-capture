@@ -145,6 +145,20 @@ OUTPUT_NAMES=("$APP_NAME.app" "$ZIP_NAME" "$DMG_NAME" "$CHECKSUM_NAME")
 BACKUP_DIR="$STAGING_DIR/backup"
 mkdir -p "$BACKUP_DIR"
 
+# Everything this script has previously written to dist/, including archives
+# from other versions and architectures. Displacing all of it means a
+# successful run leaves dist/ holding exactly the current set, and a failed
+# run restores exactly what was there before.
+DISPLACED_NAMES=()
+for existing in "$DIST_DIR/$APP_NAME.app" \
+                "$DIST_DIR/$APP_NAME"-*.dmg \
+                "$DIST_DIR/$APP_NAME"-*.zip \
+                "$DIST_DIR/$APP_NAME"-*-SHA256SUMS.txt; do
+  # Unmatched globs stay literal; `-e` filters them out.
+  [[ -e "$existing" ]] || continue
+  DISPLACED_NAMES+=("${existing#"$DIST_DIR/"}")
+done
+
 # Names successfully displaced into BACKUP_DIR, and names successfully
 # installed into dist/ during this run.
 PREVIOUS_OUTPUTS=()
@@ -176,15 +190,15 @@ rollback_outputs() {
   fi
 }
 
-for output_name in "${OUTPUT_NAMES[@]}"; do
-  if [[ -e "$DIST_DIR/$output_name" ]]; then
+if [[ ${#DISPLACED_NAMES[@]} -gt 0 ]]; then
+  for output_name in "${DISPLACED_NAMES[@]}"; do
     if ! mv "$DIST_DIR/$output_name" "$BACKUP_DIR/$output_name"; then
       rollback_outputs
       fail "Could not stage existing $output_name for replacement; outputs restored to previous state"
     fi
     PREVIOUS_OUTPUTS+=("$output_name")
-  fi
-done
+  done
+fi
 
 for output_name in "${OUTPUT_NAMES[@]}"; do
   if ! mv "$STAGING_DIR/$output_name" "$DIST_DIR/$output_name"; then
@@ -192,6 +206,30 @@ for output_name in "${OUTPUT_NAMES[@]}"; do
     fail "Could not install $output_name; outputs restored to previous state"
   fi
   INSTALLED_OUTPUTS+=("$output_name")
+done
+
+# Superseded archives are dropped with the staging directory, so say what went.
+if [[ ${#PREVIOUS_OUTPUTS[@]} -gt 0 ]]; then
+  for output_name in "${PREVIOUS_OUTPUTS[@]}"; do
+    superseded=1
+    for kept in "${OUTPUT_NAMES[@]}"; do
+      if [[ "$output_name" == "$kept" ]]; then
+        superseded=0
+      fi
+    done
+    if [[ "$superseded" == 1 ]]; then
+      echo "Removed stale: $output_name"
+    fi
+  done
+fi
+
+# Staging directories from earlier crashed runs are left in place: one may hold
+# the only copy of previous outputs, so removing it silently would be worse
+# than the clutter.
+for leftover in "$DIST_DIR"/.package.*; do
+  if [[ -d "$leftover" && "$leftover" != "$STAGING_DIR" ]]; then
+    echo "Note: leftover staging directory from an earlier run: $leftover" >&2
+  fi
 done
 
 echo "Created: $DIST_DIR/$APP_NAME.app"

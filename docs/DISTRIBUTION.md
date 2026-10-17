@@ -96,19 +96,21 @@ The script should:
 
 ### Failure behavior
 
-The four outputs (app bundle, DMG, ZIP, checksums) are replaced as one transaction:
+The four outputs (app bundle, DMG, ZIP, checksums) are replaced as one transaction, and `dist/` ends up holding exactly that set:
 
 ```text
 build + verify in dist/.package.XXXXXX/     # nothing in dist/ is touched yet
-  move current outputs aside           -> backup/
+  move every previous output aside     -> backup/   # current set AND stale archives
   move new outputs in, one rename each
   on any failure: remove what this run installed, move the backups back
   if even that fails: keep the staging dir and say so
+  on success: backups are discarded with the staging dir, so superseded
+              archives from other versions or architectures are gone too
 ```
 
-Every step is a rename inside `dist/`, so it either happens or it does not. A run that fails partway leaves either the complete previous set or the complete new set — never a new app bundle next to a stale DMG. The worst case is a restored-but-warned state where the staging directory is deliberately kept for manual recovery, and the script prints its path.
+Every step is a rename inside `dist/`, so it either happens or it does not. A run that fails partway leaves either the complete previous set or the complete new set — never a new app bundle next to a stale DMG, and never a half-cleaned directory. The worst case is a restored-but-warned state where the staging directory is deliberately kept for manual recovery, and the script prints its path.
 
-One caveat: only the current run's filenames are replaced. Archives from an earlier version or a different architecture stay in `dist/`, so check filenames before uploading by hand. CI starts from a clean checkout and publishes only the files it just built.
+Leftover `.package.*` staging directories from a crashed run are reported but not deleted, because one may hold the only copy of the previous outputs. Remove them by hand once you have checked them.
 
 Icon handling is mandatory: the script requires `Resources/AppIcon.icns`, copies it to `Contents/Resources/AppIcon.icns`, and sets `CFBundleIconFile` to `AppIcon`. Regenerate the asset first with `bash Scripts/build_app_icon.sh` if it is missing. `Resources/AppIcon-Dark.icns` is an alternative asset for future dark-appearance support; it is not copied and not automatic appearance switching.
 
