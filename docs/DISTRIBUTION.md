@@ -5,8 +5,9 @@ This project started as a personal-use macOS app. Distribution should stay simpl
 ## Goals
 
 - Keep the local developer path easy: clone, build, run.
-- Provide a downloadable GitHub Release asset for personal install.
-- Avoid Mac App Store, auto-update, telemetry, and installer complexity for now.
+- Provide a downloadable GitHub Release asset for personal install and friend testing.
+- Ship a drag-install DMG plus a ZIP, both universal.
+- Avoid Mac App Store, auto-update, telemetry, and third-party installer tooling.
 - Do not convert to an Xcode project just for packaging unless SwiftPM packaging becomes painful.
 
 ## Roadmap Shift
@@ -15,7 +16,7 @@ The next quality roadmap should evaluate, in order:
 
 - A reliable `.app` bundle with stable identity and permissions behavior.
 - Developer ID signing and notarization for low-friction direct download.
-- ZIP-only releases for the current distribution path.
+- DMG and ZIP releases produced by CI for the current distribution path.
 - Launch-at-login, permission onboarding, and settings UX only if they preserve the fast menu-bar utility model.
 - Automated tests and a documented manual QA matrix before broader release.
 
@@ -52,13 +53,21 @@ The bundle should then be copied to `/Applications` or launched directly.
 
 ### GitHub Release
 
-For the first downloadable release, prefer a zipped app bundle:
+Public distribution is GitHub Releases only. Each versioned tag publishes:
 
 ```text
-ScreenCaptureAll-0.1.0.zip
+ScreenCaptureAll-0.1.0-universal.dmg
+ScreenCaptureAll-0.1.0-universal.zip
+ScreenCaptureAll-0.1.0-universal-SHA256SUMS.txt
 ```
 
-Do not add a DMG for the current release path. An unsigned DMG still has Gatekeeper friction after download, just like an unsigned ZIP.
+The DMG is the primary download: it contains the app, an `Applications` symlink for drag-install, and a copy of `docs/INSTALL.md`. The ZIP is the alternative for people who prefer it. Both contain the same universal (arm64 + x86_64) app.
+
+The DMG does **not** bypass Gatekeeper. It is ad-hoc signed, so testers still approve it once in Privacy & Security. A DMG is worth shipping because it makes the install target obvious; it is not a substitute for notarization.
+
+Release automation lives in `.github/workflows/build.yml`: pull requests and `main` builds test and package, and a `v*` tag publishes the release.
+
+The publish step is a single `gh release create` with the assets and deliberately **no** `--draft` flag. GitHub CLI uploads assets into a temporary draft and then publishes that exact release, deleting the draft if an upload fails. Passing `--draft` explicitly disables that cleanup, which can strand a partial release that a later retry would then publish by tag. The job also fails up front if any release, draft or published, already exists for the tag, rather than guessing which one to reuse.
 
 ## Packaging Decision
 
@@ -72,14 +81,36 @@ Scripts/package_app.sh
 
 The script should:
 
-- Build `ScreenCaptureAll` in release mode.
+- Build `ScreenCaptureAll` in release mode for the requested architectures.
 - Create `ScreenCaptureAll.app`.
 - Generate `Contents/Info.plist`.
+- Validate the plist and confirm the binary contains every requested architecture.
 - Copy the executable to `Contents/MacOS/ScreenCaptureAll`.
 - Set executable permissions.
 - Strip extended attributes before signing or zipping.
 - Ad-hoc sign the app for personal use.
-- Zip the app bundle for GitHub Releases.
+- Zip the app bundle and build a drag-install DMG.
+- Write SHA-256 checksums and verify both archives before touching previous outputs.
+
+`ARCHES="arm64 x86_64"` produces a universal build. Release builds always use it; a bare local run stays single-architecture to keep iteration fast. The version defaults to [VERSION](../VERSION).
+
+### Failure behavior
+
+The four outputs (app bundle, DMG, ZIP, checksums) are replaced as one transaction, and `dist/` ends up holding exactly that set:
+
+```text
+build + verify in dist/.package.XXXXXX/     # nothing in dist/ is touched yet
+  move every previous output aside     -> backup/   # current set AND stale archives
+  move new outputs in, one rename each
+  on any failure: remove what this run installed, move the backups back
+  if even that fails: keep the staging dir and say so
+  on success: backups are discarded with the staging dir, so superseded
+              archives from other versions or architectures are gone too
+```
+
+Every step is a rename inside `dist/`, so it either happens or it does not. A run that fails partway leaves either the complete previous set or the complete new set — never a new app bundle next to a stale DMG, and never a half-cleaned directory. The worst case is a restored-but-warned state where the staging directory is deliberately kept for manual recovery, and the script prints its path.
+
+Leftover `.package.*` staging directories from a crashed run are reported but not deleted, because one may hold the only copy of the previous outputs. Remove them by hand once you have checked them.
 
 Icon handling is mandatory: the script requires `Resources/AppIcon.icns`, copies it to `Contents/Resources/AppIcon.icns`, and sets `CFBundleIconFile` to `AppIcon`. Regenerate the asset first with `bash Scripts/build_app_icon.sh` if it is missing. `Resources/AppIcon-Dark.icns` is an alternative asset for future dark-appearance support; it is not copied and not automatic appearance switching.
 
@@ -124,7 +155,16 @@ xcrun notarytool submit ScreenCaptureAll.zip --keychain-profile "notary-profile"
 xcrun stapler staple ScreenCaptureAll.app
 ```
 
-Notarized ZIP is the best public-download experience under the current ZIP-only decision, but it is not required for personal use.
+Notarized DMG or ZIP is the best public-download experience because it removes the Gatekeeper override, but it is not required to share a build with friends.
+
+If notarization is added, prefer `--options runtime` on the app *and* the nested binary, keep the DMG as the notarized artifact, and stamp the app before building the DMG:
+
+```bash
+xcrun notarytool submit ScreenCaptureAll-<version>-universal.dmg --keychain-profile "notary-profile" --wait
+xcrun stapler staple dist/ScreenCaptureAll.app
+```
+
+Then rebuild the DMG, because stapling changes the app bytes. CI needs `APP_STORE_CONNECT_API_KEY_P8`, `APP_STORE_CONNECT_KEY_ID`, and `APP_STORE_CONNECT_ISSUER_ID` as secrets, and a Developer ID certificate imported into a temporary keychain. None of this is set up today.
 
 ## Permissions Notes
 
@@ -137,28 +177,34 @@ Changing any of these may cause macOS to treat the app as a different app and as
 - Signing identity.
 - App bundle structure.
 
+Ad-hoc signatures are derived from the binary, so every release is effectively a new identity. Testers may need to re-approve Screen Recording after an update. Stable Developer ID signing is the real fix.
+
 ## Current Runbook
 
-Build a local app bundle and GitHub-ready ZIP with:
+Build a local app bundle, DMG, and ZIP with:
 
 ```bash
-Scripts/package_app.sh
+ARCHES="arm64 x86_64" Scripts/package_app.sh
 ```
 
 The generated outputs are:
 
 ```text
 dist/ScreenCaptureAll.app
-dist/ScreenCaptureAll-0.1.0.zip
+dist/ScreenCaptureAll-0.1.0-universal.dmg
+dist/ScreenCaptureAll-0.1.0-universal.zip
+dist/ScreenCaptureAll-0.1.0-universal-SHA256SUMS.txt
 ```
 
-Use environment variables for release overrides:
+Use environment variables for local overrides:
 
 ```bash
 MARKETING_VERSION=0.2.0 BUILD_NUMBER=2 Scripts/package_app.sh
 ```
 
+For a release, change [VERSION](../VERSION) instead and push a matching `v<version>` tag; CI refuses a tag that disagrees with the file.
+
 Next packaging improvements, in order:
 
-1. Attach `ScreenCaptureAll-<version>.zip` to GitHub Releases.
-2. Add Developer ID signing and notarization only if the app is shared beyond personal use.
+1. Repo visibility: releases are only reachable by testers with repository access while this repo is private. Make it public, or add testers as collaborators.
+2. Developer ID signing and notarization to remove the Gatekeeper override and the repeated Screen Recording approval.
