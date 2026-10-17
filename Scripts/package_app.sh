@@ -92,9 +92,13 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 PLIST
 
 plutil -lint "$APP_BUNDLE/Contents/Info.plist"
+# lipo requires the input file before the command; the arch-first form is
+# tolerated by some toolchains and rejected by others.
+BINARY_ARCHS=$(lipo "$APP_BUNDLE/Contents/MacOS/$APP_NAME" -archs)
 for arch in "${ARCH_ARRAY[@]}"; do
-  lipo -verify_arch "$arch" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
+  [[ " $BINARY_ARCHS " == *" $arch "* ]] || fail "Packaged binary is missing $arch (has: $BINARY_ARCHS)"
 done
+echo "Binary architectures: $BINARY_ARCHS"
 chmod -R u+w "$APP_BUNDLE"
 xattr -cr "$APP_BUNDLE"
 find "$APP_BUNDLE" -name '._*' -delete
