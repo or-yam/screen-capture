@@ -13,20 +13,20 @@ and Intel Macs that can run macOS 26. This is a menu-bar app, not a Dock app.
 
 The ZIP is an alternative: unzip it, then move ScreenCaptureAll.app into Applications.
 
-## First launch: macOS will block the app
+## First launch: macOS security warning
 
 These friend-testing builds are ad-hoc signed. They are not Apple Developer ID
-signed and not notarized, so macOS will refuse the first launch. Expect this alert:
+signed and not notarized. A browser-downloaded build normally triggers a first-launch
+Gatekeeper block such as:
 
 > **"ScreenCaptureAll" Not Opened**
 > Apple could not verify "ScreenCaptureAll" is free of malware that may harm your
 > Mac or compromise your privacy.
 > [Done] [Move to Trash]
 
-This is the normal message for an app that has not been notarized. Notarization is
-Apple's automated malware scan; it has not been performed on this build, so macOS
-reports exactly that. It does not mean the download is damaged or that Apple found
-anything wrong.
+This warning means macOS cannot verify the app for normal distribution. It is not
+the same as an explicit malware-detection alert, and it is not proof the app is safe.
+See [Apple's explanation of these alerts](https://support.apple.com/en-us/102445).
 
 That said, do not click through it reflexively. A screen capture app can see
 everything on your screen, so only continue if you got the file from this project's
@@ -51,24 +51,22 @@ Notes:
   build cannot be installed on it.
 
 If macOS instead says **"ScreenCaptureAll" is damaged and can't be opened** or
-**will damage your computer**, that is a different and unexpected message — it
-usually means the download was corrupted or altered. Delete it and download again;
-if it repeats, verify the checksum below and report the exact wording rather than
-working around it.
+**will damage your computer**, stop and report the exact wording. These are different
+alerts that can involve integrity or malware detection; do not bypass them using
+the steps below.
 
 ### Option: skip the override using Terminal
 
-Gatekeeper only inspects apps that carry the `com.apple.quarantine` attribute,
-which browsers add to downloads. You can remove that attribute yourself instead of
-clicking through System Settings. Run this **after** copying the app to
+For a trusted build with a verified checksum, removing the download's quarantine
+attribute can avoid its first-launch Gatekeeper block. Prefer the System Settings
+override above. If you choose Terminal, run this **after** copying the app to
 Applications:
 
     xattr -dr com.apple.quarantine /Applications/ScreenCaptureAll.app
 
-This genuinely works, but understand what you are giving up: you are switching off
-the check that would have caught a tampered-with or substituted download. Verify
-the SHA-256 checksum (below) before using it. You must repeat the command after
-every update, because each fresh download is quarantined again.
+This is a security override, not signing or notarization. It does not disable all
+macOS malware protections or prove the app safe. Verify the SHA-256 checksum below
+first. A fresh browser download may carry quarantine again after an update.
 
 ## Allow Screen Recording
 
@@ -87,9 +85,9 @@ There is no automatic updater. Download the desired release, quit ScreenCaptureA
 from its menu, replace the app in Applications, then reopen it. Use the same path.
 Older versions are available on the GitHub Releases page.
 
-Every update repeats both interruptions: the new download is quarantined, so the
-first-launch block and the Open Anyway step come back, and the ad-hoc signature
-changed, so macOS may ask for Screen Recording approval again. If capture remains
+Updates may repeat both interruptions: a new browser download carries quarantine,
+and the ad-hoc signature changes when the signed build changes, so macOS may ask
+for the launch override and Screen Recording approval again. If capture remains
 denied after enabling it and relaunching, remove only ScreenCaptureAll's permission
 entry, add the new app, and relaunch. Never reset all macOS privacy permissions as
 an update step.
@@ -101,14 +99,11 @@ folder, then run in Terminal from that folder:
 
     shasum -a 256 -c ScreenCaptureAll-*-SHA256SUMS.txt
 
-Both files should report OK. Do this before you launch the app if you plan to use
-the Terminal override above — that override skips exactly the check this one
-substitutes for.
-
-Without notarization there is no Apple-issued proof of authorship, so this checksum
-is the only integrity check available: it tells you the download matches what the
-release published, not who built it. It protects against a corrupted or swapped
-file, not against a malicious build published under this project's name.
+Both files should report OK. Verify them before launch, especially before using
+the Terminal override. Checksums show that files match the published release;
+they do not check for malware or replace Developer ID signing and notarization.
+These ad-hoc builds have no verified Developer ID publisher identity. A malicious
+release could publish a matching checksum too.
 
 ## Uninstall
 

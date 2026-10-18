@@ -47,6 +47,16 @@ if [[ ! -f "$ROOT/Resources/AppIcon.icns" ]]; then
   exit 1
 fi
 
+DMG_PYTHON="$ROOT/.build/dmg-tools/bin/python"
+DMG_LOCK=$(shasum -a 256 "$ROOT/Scripts/dmg-requirements.txt" | awk '{print $1}')
+[[ -x "$DMG_PYTHON" && -f "$ROOT/.build/dmg-tools/.requirements-sha256" &&
+   "$(cat "$ROOT/.build/dmg-tools/.requirements-sha256")" == "$DMG_LOCK" ]] ||
+  fail "DMG tools missing or out of date; run: bash Scripts/setup_dmg_tools.sh (Python 3.10+)"
+for asset in settings.py background.png background@2x.png; do
+  [[ -f "$ROOT/Resources/dmg/$asset" ]] || fail "Missing DMG input: Resources/dmg/$asset"
+done
+[[ -x /usr/bin/SetFile ]] || fail "SetFile is missing; install the Xcode Command Line Tools"
+
 echo "Building $APP_NAME ($CONFIGURATION; $ARCHES)"
 swift build "${BUILD_ARGS[@]}" --product ScreenCaptureAll
 
@@ -63,13 +73,7 @@ STAGING_DIR=$(mktemp -d "$DIST_DIR/.package.XXXXXX")
 # Set when a rollback could not fully restore the previous outputs; the
 # staging directory then holds the backups and must survive for recovery.
 KEEP_STAGING=0
-# Set while a writable disk image is attached, so a failure cannot leave a
-# volume mounted in the user's Finder.
-MOUNTED_DEVICE=""
 cleanup_staging() {
-  if [[ -n "$MOUNTED_DEVICE" ]]; then
-    hdiutil detach "$MOUNTED_DEVICE" >/dev/null 2>&1 || true
-  fi
   if [[ "$KEEP_STAGING" == 1 ]]; then
     echo "Keeping staging directory for recovery: $STAGING_DIR" >&2
     return
@@ -131,55 +135,20 @@ echo "Creating $ZIP_NAME"
 )
 
 echo "Creating $DMG_NAME"
-# The window layout (background picture, icon positions, window size) lives in a
-# `.DS_Store`, which only Finder can write, so those assets are committed and
-# frozen rather than generated here. Regenerate them with
-# `bash Scripts/make_dmg_layout.sh`, which needs a GUI session.
-DMG_ASSET_DIR="$ROOT/Resources/dmg"
-for asset in background.png background@2x.png DotDSStore; do
-  [[ -f "$DMG_ASSET_DIR/$asset" ]] ||
-    fail "missing $DMG_ASSET_DIR/$asset; run: bash Scripts/make_dmg_layout.sh"
-done
-[[ -x /usr/bin/SetFile ]] || fail "SetFile is missing; install the Xcode Command Line Tools"
-
-mkdir "$STAGING_DIR/dmg"
-ditto "$APP_BUNDLE" "$STAGING_DIR/dmg/$APP_NAME.app"
-ln -s /Applications "$STAGING_DIR/dmg/Applications"
-mkdir "$STAGING_DIR/dmg/.background"
-# Disable event logging before the first mount, not after logs have been created.
-mkdir "$STAGING_DIR/dmg/.fseventsd"
-touch "$STAGING_DIR/dmg/.fseventsd/no_log"
-# One file holding both resolutions; Finder picks the one matching the display.
-tiffutil -cathidpicheck "$DMG_ASSET_DIR/background.png" "$DMG_ASSET_DIR/background@2x.png" \
-  -out "$STAGING_DIR/dmg/.background/background.tiff"
-
-# A volume icon and a Finder layout can only be set on a mounted read-write image,
-# so build one, decorate it, then convert it to the compressed read-only DMG.
-# `hdiutil create -srcfolder` discards `.DS_Store`, so the layout file is copied onto
-# the mounted volume rather than into the staging directory.
-RW_DMG="$STAGING_DIR/$ASSET_NAME.rw.dmg"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING_DIR/dmg" \
-  -fs HFS+ -format UDRW -ov "$RW_DMG" >/dev/null
-
-DMG_MOUNT="$STAGING_DIR/dmg-mount"
-mkdir "$DMG_MOUNT"
-MOUNTED_DEVICE=$(hdiutil attach "$RW_DMG" -readwrite -noverify -noautoopen -nobrowse \
-  -mountpoint "$DMG_MOUNT" | awk '/^\/dev\//{print $1; exit}')
-[[ -n "$MOUNTED_DEVICE" ]] || fail "could not mount $RW_DMG"
-
-cp "$DMG_ASSET_DIR/DotDSStore" "$DMG_MOUNT/.DS_Store"
-# shellcheck source=Scripts/dmg_volume.sh
-source "$ROOT/Scripts/dmg_volume.sh"
-decorate_dmg_volume "$DMG_MOUNT" "$ROOT/Resources/AppIcon.icns"
-
-chmod -Rf go-w "$DMG_MOUNT"
-sync
-
-hdiutil detach "$MOUNTED_DEVICE" >/dev/null
-MOUNTED_DEVICE=""
-hdiutil convert "$RW_DMG" -format UDZO -ov -o "$STAGING_DIR/$DMG_NAME" >/dev/null
-rm -f "$RW_DMG"
+# The engine owns mounting, Retina TIFF generation and Finder metadata. All
+# outputs stay in staging until the finished image has passed validation.
+mkdir "$STAGING_DIR/events"
+touch "$STAGING_DIR/events/no_log"
+"$DMG_PYTHON" -m dmgbuild -s "$ROOT/Resources/dmg/settings.py" \
+  -D "root=$ROOT" -D "app=$APP_BUNDLE" -D "events=$STAGING_DIR/events" \
+  "$APP_NAME" "$STAGING_DIR/$DMG_NAME"
 hdiutil verify "$STAGING_DIR/$DMG_NAME"
+CHECK_ARGS=("$ROOT/Scripts/check_dmg.py" "$STAGING_DIR/$DMG_NAME"
+  --app-name "$APP_NAME" --bundle-id "$BUNDLE_ID" --version "$MARKETING_VERSION" --build-number "$BUILD_NUMBER")
+for arch in "${ARCH_ARRAY[@]}"; do
+  CHECK_ARGS+=(--arch "$arch")
+done
+"$DMG_PYTHON" "${CHECK_ARGS[@]}"
 (
   cd "$STAGING_DIR"
   shasum -a 256 "$DMG_NAME" "$ZIP_NAME" > "$CHECKSUM_NAME"

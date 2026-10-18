@@ -90,8 +90,8 @@ The script should:
 - Strip extended attributes before signing or zipping.
 - Ad-hoc sign the app for personal use.
 - Zip the app bundle.
-- Build a drag-install DMG, decorating a writable image with the volume icon and the
-  frozen Finder layout before converting it to a compressed read-only image.
+- Build a drag-install DMG with generated Finder metadata, the approved artwork and
+  volume icon, then validate the compressed read-only image.
 - Write SHA-256 checksums and verify both archives before touching previous outputs.
 
 `ARCHES="arm64 x86_64"` produces a universal build. Release builds always use it; a bare local run stays single-architecture to keep iteration fast. The version defaults to [VERSION](../VERSION).
@@ -118,63 +118,69 @@ Icon handling is mandatory: the script requires `Resources/AppIcon.icns`, copies
 
 ### DMG window layout
 
-The DMG window (size, icon positions, background picture) is a `.DS_Store`, and only Finder
-writes those. The layout is therefore frozen in `Resources/dmg/` and copied into every image
-rather than generated during packaging:
+Install the isolated build tools once with Python 3.10 or newer:
 
-- `background.png` and `background@2x.png`: window artwork, rendered by
-  `Scripts/build_dmg_background.sh` from `Scripts/generate_dmg_background.swift`.
-  `tiffutil -cathidpicheck` combines the pair at packaging time so Retina windows are sharp.
-- `DotDSStore`: the layout file, named with the dot spelled out because `.gitignore` ignores
-  `.DS_Store` anywhere in the tree. `package_app.sh` copies it in as `.DS_Store`.
+```sh
+bash Scripts/setup_dmg_tools.sh
+# To select another installed interpreter:
+# PYTHON=/path/to/python3 bash Scripts/setup_dmg_tools.sh
+```
 
-Regenerate both with `bash Scripts/make_dmg_layout.sh`. That is the one packaging step needing
-a GUI session: it mounts a writable image, sets the volume icon, asks Finder to lay the window
-out, freezes the result, and leaves a preview DMG mounted for inspection. CI cannot run it,
-which is why its output is committed. `Scripts/package_app.sh` fails rather than shipping a
-bare window if the assets are missing.
+CI provisions Python 3.13. `Scripts/dmg-requirements.txt` pins the engine and both
+transitive dependencies to exact, SHA-256-verified pure-Python wheels. Setup uses a
+private `.build/dmg-tools/` environment, not global pip packages. Re-run setup after
+changing the lock file. No automatic unpinned upgrades are performed.
+Initial setup needs PyPI access (or a populated wheel cache); the wheels are not
+vendored. Packaging uses the installed environment without downloading tools.
 
-Volume decoration (custom icon, hidden flags, suppressing filesystem event logs)
-lives in `Scripts/dmg_volume.sh`, which both scripts source, so the image the author inspects
-is decorated exactly like the image that ships.
+- `Resources/dmg/settings.py` owns the Finder layout and support-file positions.
+  Packaging and the finished-image check read that same configuration.
+  Absolute window placement is best-effort across displays; the saved dimensions
+  and icon centres are the layout contract.
+- `background.png` and `background@2x.png` are the authoritative, reviewed artwork.
+  Keep them in Git as design inputs; edit/export both together when changing the
+  design. There is no second in-repo artwork renderer to maintain.
+- `dmgbuild` combines both resolutions into `.background.tiff` and generates a
+  valid `.DS_Store` during packaging. Neither generated file belongs in Git.
+- A small supported `create_hook` preserves the existing volume-icon creator code;
+  the engine handles the volume flag, copying, image conversion and cleanup.
 
-Hidden flags do not override Finder's **Show Hidden Files** setting. The frozen
-layout positions `.background`, `.VolumeIcon.icns`, and `.fseventsd` to the right of
-the visible installer artwork, so they do not overlap the app or drag target when
-that setting is enabled. They are still discoverable by scrolling; this is layout
-polish, not access protection. The volume icon is added after Finder's first layout
-pass, then its position is frozen in a second pass. Do not assume Finder always
-suppresses it.
+Hidden flags do not override **Show Hidden Files**. The layout puts the background,
+volume-icon file and `.fseventsd` beyond the window's right edge. They remain
+discoverable by scrolling; this is presentation, not access protection. We supply
+`.fseventsd/no_log` through the engine's file list to suppress filesystem event logs
+and validate the final image after unmount, not merely the staging directory.
 
-Both staging paths seed `.fseventsd/no_log` **before** the first mount. Deleting
-`.fseventsd` is insufficient: macOS can recreate it with event logs during unmount.
-The sentinel directory is deliberately retained and positioned off-window.
+Before replacing `dist/`, every package is mounted read-only and checked by
+`Scripts/check_dmg.py`: Finder metadata and background references, icon positions,
+Retina image dimensions, volume icon, Applications link, absence of event logs,
+app identity/signature and requested architectures. It detaches its own mount on
+success or failure. The check needs no Finder session, Automation or Screen
+Recording permission. Its regression tests run separately from `swift test`.
 
-After mounting the **finished** DMG, run `bash Scripts/check_dmg_layout.sh`
-(or pass its absolute mount path). This GUI integration check verifies the
-background file exists, event logging is disabled with no shipped logs, the install
-icons match the artwork's centres, and every listed support item is beyond the window's right edge.
-It also checks all three known support positions regardless of hidden-file settings.
-Open the finished image through Finder (`open dist/ScreenCaptureAll-<version>-<arch>.dmg`)
-and check that exact mount path; avoid duplicate mounts of older images. The check
-does not change Finder preferences or inspect rendered pixels. Visually check the
-artwork and initial scroll position with hidden files
-both shown and hidden before releasing. This check needs Finder Automation
-permission and is not part of headless `swift test` or CI.
+This verifies metadata and files, **not rendered pixels**. Before release, download
+the CI artifact and inspect it through Finder with hidden files both shown and
+hidden, checking artwork, initial scroll position and drag-install. Eject old copies
+before opening the image to avoid confusing duplicate mount names.
 
-Two Finder behaviours are load-bearing and are why the packaging script does things the long
-way:
+#### Tool choice and alternatives
 
-- `hdiutil create -srcfolder` discards `.DS_Store`, so the layout file is copied onto the
-  mounted volume instead of into the staging directory.
-- macOS deletes an *invalid* `.DS_Store` when the volume unmounts, so the layout file must be
-  one Finder wrote. A hand-made placeholder silently disappears.
+PR #4 compared these approaches against the approved artwork and actual final-image
+metadata. Popularity was context, not a substitute for compatibility testing.
 
-Window geometry is duplicated between the Swift renderer, `Scripts/make_dmg_layout.sh`,
-and the integration check's expected icon centres. Change them together and inspect
-the remounted preview before committing a new `DotDSStore`. Do not compensate for
-unpositioned support files with an offset on the app icons; position all support
-files explicitly instead.
+| Approach | Evidence and tradeoff | Decision |
+| --- | --- | --- |
+| Custom scripts + frozen layout | Working baseline; no third-party runtime, but GUI-only authoring, an opaque committed layout and duplicated geometry. | Retire after replacement validation. |
+| [create-dmg 1.3.0](https://github.com/create-dmg/create-dmg/tree/v1.3.0) | Local trial reproduced the artwork and geometry. It uses Finder/AppleScript on every decorated build; headless modes skip decoration. CI compatibility was not tested. A clean image without `.fseventsd` is valid, not a failure. | Valid alternative, but retains a GUI dependency we can avoid. |
+| [dmgbuild 1.6.7](https://dmgbuild.readthedocs.io/en/latest/) | Local trial reproduced geometry, Retina artwork, portable background aliases and app signature without Finder. Cost: Python 3.10+, two pure-Python dependencies and a tiny icon hook. | Selected; dependency versions and wheel hashes are locked. |
+| [sindresorhus/create-dmg](https://github.com/sindresorhus/create-dmg) | Source/docs review only: deliberately opinionated design and a Node/native-addon dependency chain. Its public options do not express our custom artwork/layout. | Good for its default design, not this one. |
+| [appdmg](https://github.com/LinusU/node-appdmg) | Source/docs review only: customizable and GUI-free, but includes native Node add-ons and had no upstream push since 2023 at evaluation time. | More dependency-maintenance risk for this project. |
+| Plain `hdiutil` image | Smallest native-only option, but omits the approved custom Finder presentation. | Suitable if branding is dropped later. |
+
+The goal is a repeatable build procedure, not byte-identical DMGs: image timestamps
+and identifiers can change. Dependency locks do not make third-party code risk-free;
+review updates and rerun the final-artifact checks. All evaluated engines still use
+macOS disk-image tools, whose compatibility must be maintained as macOS evolves.
 
 Use these app metadata values:
 
@@ -205,7 +211,8 @@ This gives the bundle a code signature without requiring an Apple Developer acco
 
 ### Developer ID Signing And Notarization
 
-Use this only if other people are downloading the app and the Gatekeeper flow becomes annoying enough to justify the ceremony.
+Developer ID signing and notarization are the intended production distribution path.
+They are not configured by the DMG-layout work; treat their setup as a separate change.
 
 This requires a paid Apple Developer account and a Developer ID Application certificate.
 
@@ -248,6 +255,7 @@ Ad-hoc signatures are derived from the binary, so every release is effectively a
 Build a local app bundle, DMG, and ZIP with:
 
 ```bash
+bash Scripts/setup_dmg_tools.sh
 ARCHES="arm64 x86_64" Scripts/package_app.sh
 ```
 

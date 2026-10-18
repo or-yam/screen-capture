@@ -2,10 +2,10 @@
 
 - **macOS 26+**, Apple Silicon or Intel. Download the **universal DMG**, open it,
   and drag the app to **Applications**. ZIP is also available.
-- **No Apple notarization:** macOS will block the first launch with
-  **Apple could not verify "ScreenCaptureAll" is free of malware**. That is the
-  expected message for an unnotarized build, not a sign that anything is wrong with
-  the download. Only if you trust the source, click **Done** (not Move to Trash),
+- **No Apple notarization:** browser-downloaded builds normally trigger
+  **Apple could not verify "ScreenCaptureAll" is free of malware**. This warning is
+  expected for this build, but is not proof the download is safe. Only if you trust
+  the source, click **Done** (not Move to Trash),
   then use **System Settings → Privacy & Security → Open Anyway**. Do not disable
   Gatekeeper globally.
 - Enable **Screen & System Audio Recording** for ScreenCaptureAll. Accessibility
