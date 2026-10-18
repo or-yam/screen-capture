@@ -8,6 +8,7 @@ final class CaptureCoordinator {
     private let saveService: SaveService
     private let saveConfirmationToastController: SaveConfirmationToastController
     private let preferences: PreferencesStore
+    private let prepareForCapture: () -> Bool
     private var isPreparingCapture = false
 
     init(
@@ -16,9 +17,11 @@ final class CaptureCoordinator {
         screenshotService: ScreenshotCapturing = ScreenCaptureKitScreenshotService(),
         clipboardService: ClipboardService = ClipboardService(),
         saveService: SaveService,
-        saveConfirmationToastController: SaveConfirmationToastController? = nil
+        saveConfirmationToastController: SaveConfirmationToastController? = nil,
+        prepareForCapture: @escaping () -> Bool
     ) {
         self.preferences = preferences
+        self.prepareForCapture = prepareForCapture
         self.screenshotService = screenshotService
         self.clipboardService = clipboardService
         self.saveService = saveService
@@ -37,8 +40,12 @@ final class CaptureCoordinator {
             AppLogging.capture.debug("Capture ignored while frozen snapshots are pending")
             return
         }
-        // Set before scheduling the task, including back-to-back shortcut events.
+        // Cover the native permission dialog's nested event loop as well as snapshot preparation.
         isPreparingCapture = true
+        guard prepareForCapture() else {
+            isPreparingCapture = false
+            return
+        }
         let captureID = UUID().uuidString
         AppLogging.capture.notice("Capture requested id=\(captureID, privacy: .public)")
         CaptureDiagnostics.log("capture requested", captureID: captureID)

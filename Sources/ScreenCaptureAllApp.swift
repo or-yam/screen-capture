@@ -7,7 +7,10 @@ struct ScreenCaptureAllApp: App {
 
     var body: some Scene {
         Settings {
-            PreferencesView(preferences: appDelegate.preferences)
+            PreferencesView(
+                preferences: appDelegate.preferences,
+                screenRecordingPermission: appDelegate.screenRecordingPermission
+            )
         }
     }
 }
@@ -15,6 +18,7 @@ struct ScreenCaptureAllApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let preferences = PreferencesStore()
+    let screenRecordingPermission = ScreenRecordingPermissionController()
 
     private var menuBarController: MenuBarController?
     private var captureCoordinator: CaptureCoordinator?
@@ -28,13 +32,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let captureCoordinator = CaptureCoordinator(
             preferences: preferences,
-            saveService: SaveService(preferences: preferences)
+            saveService: SaveService(preferences: preferences),
+            prepareForCapture: { [screenRecordingPermission] in
+                screenRecordingPermission.requestAccess()
+            }
         )
         self.captureCoordinator = captureCoordinator
 
         menuBarController = MenuBarController(
             preferences: preferences,
             captureCoordinator: captureCoordinator,
+            screenRecordingPermission: screenRecordingPermission,
             openPreferencesAction: { [weak self] in
                 self?.showPreferences()
             }
@@ -47,12 +55,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         globalShortcutManager?.start()
+        screenRecordingPermission.handleFirstLaunch()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        screenRecordingPermission.refresh()
     }
 
     private func showPreferences() {
         AppLogging.lifecycle.debug("Preferences requested")
         if preferencesWindowController == nil {
-            preferencesWindowController = PreferencesWindowController(preferences: preferences)
+            preferencesWindowController = PreferencesWindowController(
+                preferences: preferences,
+                screenRecordingPermission: screenRecordingPermission
+            )
         }
 
         preferencesWindowController?.showPreferences()

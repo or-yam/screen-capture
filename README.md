@@ -35,7 +35,8 @@ Screen locking, annotation overflow, and annotation selection/movement are imple
 - Uses a shared, stable screen-point annotation canvas for preview and export. Display clipping never rescales it; existing annotations keep their creation-time X/Y pixel basis.
 - Copies flattened annotated PNG data to `NSPasteboard`.
 - Saves flattened annotated PNG files to the configured screenshot folder.
-- Handles Screen Recording permission denial with a targeted alert and an Open System Settings action.
+- Requests missing Screen Recording permission on first launch, with no welcome or tutorial screens; rechecks on return and offers recovery when capture is attempted later.
+- Offers **Eject Installer** in the menu only for a matching mounted installer when running from Applications; never deletes the downloaded DMG.
 
 Current preferences:
 
@@ -73,6 +74,8 @@ swift test
 ```
 
 The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, stable annotation mapping, all resize handles/tools, Move and output clipping/reveal, annotation history, and offscreen AppKit preview/export placement at 1×, 2×, and 5/3× density. It also routes synthetic mouse/keyboard events through the overlay, including screen locking, overflow, Select Annotations, translation/Undo/cancellation, export during annotation movement or resizing, and replacement-selection restrictions. Geometry tests cover painted bounds, arrowheads, rectangle interiors, screen-point hit tolerance, and display clipping in horizontal/vertical layouts. Text tests cover newline-only editing, overflow, draft cancellation, all commit paths, and live-editor/export pixel alignment at uniform and independent X/Y densities. A hidden, never-ordered AppKit window verifies Return, Esc, and focus-loss responder behavior. Tests use synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, visible app windows, or system clipboard writes. They do not replace signed-app QA on real displays.
+
+Permission tests use fake approval/request/Settings actions and isolated defaults to cover first launch, relaunch, revocation, and capture gating. Installer tests use synthetic bundles and disk-image metadata to cover installed-app location, version/build matching, and safe ejection eligibility. Native permission dialogs, macOS-required restarts, and actual disk ejection still require signed-app manual QA.
 
 Some Swift 6.4 Command Line Tools builds fail to discover the bundled `TestingMacros` plugin when compiling the test module. If `swift test` reports that exact missing-plugin error, explicitly load the selected toolchain's plugin:
 
@@ -150,7 +153,7 @@ Debug messages normally are not retained; starting a stream later cannot recover
 
 #### 3. Approve Screen Recording for this app
 
-In **System Settings → Privacy & Security → Screen & System Audio Recording** (called **Screen Recording** on some macOS versions), enable **ScreenCaptureAll Diagnostics**. Approval for the installed app does not automatically cover this separate debug identity.
+First launch requests missing access and opens **System Settings → Privacy & Security → Screen & System Audio Recording** (called **Screen Recording** on some macOS versions). Enable **ScreenCaptureAll Diagnostics**. Approval for the installed app does not automatically cover this separate debug identity. Subsequent launches stay quiet; use **Capture Region** or **Enable Screen Recording...** in the menu to recover missing access.
 
 If it is not listed, click **+** and select the debug bundle. Reveal it with:
 
@@ -158,7 +161,7 @@ If it is not listed, click **+** and select the debug bundle. Reveal it with:
 open -R "$PWD/.build/capture-diagnostics/ScreenCaptureAll-Diagnostics.app"
 ```
 
-If the file picker hides `.build`, press **Cmd-Shift-G** and enter the repository's `.build/capture-diagnostics/` path. The app currently checks permission rather than explicitly requesting it, so manual addition may be necessary.
+If the file picker hides `.build`, press **Cmd-Shift-G** and enter the repository's `.build/capture-diagnostics/` path. Manual addition is a fallback if the native permission request did not list the diagnostic app.
 
 When switching from an old ad-hoc build to this certificate-signed build, you may need to remove/re-add the diagnostic app's old entry **once**. Repeating this after every rebuild is not the intended workflow. Stable signing reduces identity-related reapproval, but macOS can still independently request renewal. Do not reset permissions globally.
 
