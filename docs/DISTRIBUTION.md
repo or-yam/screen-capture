@@ -170,12 +170,18 @@ metadata. Popularity was context, not a substitute for compatibility testing.
 
 | Approach | Evidence and tradeoff | Decision |
 | --- | --- | --- |
-| Custom scripts + frozen layout | Working baseline; no third-party runtime, but GUI-only authoring, an opaque committed layout and duplicated geometry. | Retire after replacement validation. |
+| Custom scripts + frozen layout | Working baseline; no third-party runtime, but GUI-only authoring, an opaque committed layout and duplicated geometry. | Replaced after the new path passed local and universal CI validation. |
 | [create-dmg 1.3.0](https://github.com/create-dmg/create-dmg/tree/v1.3.0) | Local trial reproduced the artwork and geometry. It uses Finder/AppleScript on every decorated build; headless modes skip decoration. CI compatibility was not tested. A clean image without `.fseventsd` is valid, not a failure. | Valid alternative, but retains a GUI dependency we can avoid. |
 | [dmgbuild 1.6.7](https://dmgbuild.readthedocs.io/en/latest/) | Local trial reproduced geometry, Retina artwork, portable background aliases and app signature without Finder. Cost: Python 3.10+, two pure-Python dependencies and a tiny icon hook. | Selected; dependency versions and wheel hashes are locked. |
 | [sindresorhus/create-dmg](https://github.com/sindresorhus/create-dmg) | Source/docs review only: deliberately opinionated design and a Node/native-addon dependency chain. Its public options do not express our custom artwork/layout. | Good for its default design, not this one. |
 | [appdmg](https://github.com/LinusU/node-appdmg) | Source/docs review only: customizable and GUI-free, but includes native Node add-ons and had no upstream push since 2023 at evaluation time. | More dependency-maintenance risk for this project. |
 | Plain `hdiutil` image | Smallest native-only option, but omits the approved custom Finder presentation. | Suitable if branding is dropped later. |
+
+[CI proof on macOS 26](https://github.com/or-yam/screen-capture/actions/runs/39105742335)
+installed the hash-locked environment with Python 3.13, passed the packaging tests,
+and produced a universal DMG/ZIP with successful final-image validation. Local
+Finder inspection also reported the approved icon positions. Neither proves
+rendered-pixel appearance; keep the manual release check above.
 
 The goal is a repeatable build procedure, not byte-identical DMGs: image timestamps
 and identifiers can change. Dependency locks do not make third-party code risk-free;
