@@ -34,13 +34,12 @@ ICON_SIZE=128
 ICON_BAND_FROM_TOP=195
 APP_ICON_X=170
 APPLICATIONS_ICON_X=490
+# Keep support icons beyond the artwork when Show Hidden Files is on.
+# They remain discoverable by scrolling; do not change the user's Finder settings.
+SUPPORT_ICON_X=$((WINDOW_WIDTH + ICON_SIZE * 2))
+SUPPORT_ICON_SPACING=$((ICON_SIZE * 2))
 WINDOW_LEFT=200
 WINDOW_TOP=200
-# Measured on macOS 26: Finder's AppleScript `position` setter is offset from the
-# value it later stores (and reports) by this many points, so the icon lands on the
-# artwork's arrow band rather than 45pt below it. Re-measure after changing
-# WINDOW_HEIGHT; the figures below assume this window size.
-ICON_POSITION_Y_OFFSET=45
 
 fail() {
   echo "ERROR: $*" >&2
@@ -69,6 +68,9 @@ echo "Staging $APP_BUNDLE"
 ditto "$APP_BUNDLE" "$STAGE/$APP_NAME.app"
 ln -s /Applications "$STAGE/Applications"
 mkdir -p "$STAGE/.background"
+# Suppress filesystem event logs from the first mount through final unmount.
+mkdir "$STAGE/.fseventsd"
+touch "$STAGE/.fseventsd/no_log"
 # Both representations in one file: Finder picks the one matching the display.
 tiffutil -cathidpicheck "$BACKGROUND_DIR/background.png" "$BACKGROUND_DIR/background@2x.png" \
   -out "$STAGE/.background/background.tiff"
@@ -95,10 +97,12 @@ trap cleanup EXIT
 echo "Asking Finder to lay out the window"
 WINDOW_RIGHT=$((WINDOW_LEFT + WINDOW_WIDTH))
 WINDOW_BOTTOM=$((WINDOW_TOP + WINDOW_HEIGHT + WINDOW_TITLEBAR))
-ICON_POSITION_Y=$((ICON_BAND_FROM_TOP - ICON_POSITION_Y_OFFSET))
+# Provisional positions. The stable pass below resets the actual icon centres
+# after Finder establishes its scroll origin; verify again after remount.
+ICON_POSITION_Y=$ICON_BAND_FROM_TOP
 osascript <<APPLESCRIPT || fail "Finder did not accept the layout; grant Automation permission to this terminal and re-run"
 tell application "Finder"
-	tell disk "$APP_NAME"
+	tell folder (POSIX file "$MOUNT_DIR" as alias)
 		open
 		set current view of container window to icon view
 		set toolbar visible of container window to false
@@ -110,6 +114,7 @@ tell application "Finder"
 		set background picture of theViewOptions to file ".background:background.tiff"
 		set position of item "$APP_NAME.app" of container window to {$APP_ICON_X, $ICON_POSITION_Y}
 		set position of item "Applications" of container window to {$APPLICATIONS_ICON_X, $ICON_POSITION_Y}
+		set position of folder ".background" of container window to {$SUPPORT_ICON_X, $ICON_POSITION_Y}
 		update without registering applications
 		delay 1
 		close
@@ -125,13 +130,38 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do
   sleep 1
 done
 [[ -s "$MOUNT_DIR/.DS_Store" ]] || fail "Finder wrote no .DS_Store; nothing to freeze"
+
+# Add the volume icon after Finder's first layout pass. Finder can remove it
+# during initial volume setup, so positioning it before that pass is unreliable.
+# shellcheck source=Scripts/dmg_volume.sh
+source "$ROOT/Scripts/dmg_volume.sh"
+decorate_dmg_volume "$MOUNT_DIR" "$ROOT/Resources/AppIcon.icns"
+
+osascript <<APPLESCRIPT || fail "Finder could not position the DMG support files"
+tell application "Finder"
+	tell folder (POSIX file "$MOUNT_DIR" as alias)
+		open
+		set supportX to $SUPPORT_ICON_X
+		repeat with supportName in {".background", ".VolumeIcon.icns", ".fseventsd"}
+			set position of item (contents of supportName) of container window to {supportX, $ICON_POSITION_Y}
+			set supportX to supportX + $SUPPORT_ICON_SPACING
+		end repeat
+		-- The first pass can shift install icons while Finder establishes its
+		-- scroll origin. Reset their actual artwork centres in this stable pass.
+		set position of item "$APP_NAME.app" of container window to {$APP_ICON_X, $ICON_BAND_FROM_TOP}
+		set position of item "Applications" of container window to {$APPLICATIONS_ICON_X, $ICON_BAND_FROM_TOP}
+		update without registering applications
+		delay 1
+		close
+	end tell
+	delay 1
+end tell
+APPLESCRIPT
 sync
 
 cp "$MOUNT_DIR/.DS_Store" "$BACKGROUND_DIR/DotDSStore"
 
 # Decorate exactly as package_app.sh does, so the preview image is the shipped image.
-# shellcheck source=Scripts/dmg_volume.sh
-source "$ROOT/Scripts/dmg_volume.sh"
 decorate_dmg_volume "$MOUNT_DIR" "$ROOT/Resources/AppIcon.icns"
 
 hdiutil detach "$MOUNTED_DEVICE" >/dev/null

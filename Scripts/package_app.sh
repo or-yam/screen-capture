@@ -146,6 +146,9 @@ mkdir "$STAGING_DIR/dmg"
 ditto "$APP_BUNDLE" "$STAGING_DIR/dmg/$APP_NAME.app"
 ln -s /Applications "$STAGING_DIR/dmg/Applications"
 mkdir "$STAGING_DIR/dmg/.background"
+# Disable event logging before the first mount, not after logs have been created.
+mkdir "$STAGING_DIR/dmg/.fseventsd"
+touch "$STAGING_DIR/dmg/.fseventsd/no_log"
 # One file holding both resolutions; Finder picks the one matching the display.
 tiffutil -cathidpicheck "$DMG_ASSET_DIR/background.png" "$DMG_ASSET_DIR/background@2x.png" \
   -out "$STAGING_DIR/dmg/.background/background.tiff"

@@ -3,8 +3,8 @@
 # Scripts/make_dmg_layout.sh so the image the layout author inspects is decorated
 # exactly like the image that ships.
 
-# Decorate a mounted, writable DMG volume: custom volume icon, hidden flags, and no
-# mount bookkeeping left behind.
+# Decorate a mounted, writable DMG volume: custom volume icon, hidden flags, and
+# disabled filesystem event logging.
 #
 #   decorate_dmg_volume <mount-point> <icon.icns>
 decorate_dmg_volume() {
@@ -27,13 +27,17 @@ decorate_dmg_volume() {
   SetFile -c icnC "$mount/.VolumeIcon.icns"
   SetFile -a C "$mount"
 
-  # Dot-prefixed names are hidden by convention; the hidden flag keeps them out of
-  # the way on a Mac set to show hidden files.
-  chflags hidden "$mount/.VolumeIcon.icns" "$mount/.background"
+  # Keep the sentinel directory: deleting .fseventsd lets macOS recreate it with
+  # log files during unmount. Both staging paths also seed no_log before mounting.
+  mkdir -p "$mount/.fseventsd"
+  touch "$mount/.fseventsd/no_log"
 
-  # `.fseventsd` is mount bookkeeping and has no business shipping inside the image.
+  # Show Hidden Files overrides these flags. The frozen Finder layout also parks
+  # all three support icons outside the visible installer area.
+  chflags hidden "$mount/.VolumeIcon.icns" "$mount/.background" "$mount/.fseventsd"
+
   # `.Trashes` and `.Spotlight-V100` appear if the volume was browsed by Finder.
-  for leftover in .fseventsd .Trashes .Spotlight-V100; do
+  for leftover in .Trashes .Spotlight-V100; do
     [[ -e "$mount/$leftover" ]] && rm -rf "$mount/$leftover"
   done
 

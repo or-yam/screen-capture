@@ -134,9 +134,33 @@ out, freezes the result, and leaves a preview DMG mounted for inspection. CI can
 which is why its output is committed. `Scripts/package_app.sh` fails rather than shipping a
 bare window if the assets are missing.
 
-Volume decoration (custom icon, hidden flags, pruning mount bookkeeping such as `.fseventsd`)
+Volume decoration (custom icon, hidden flags, suppressing filesystem event logs)
 lives in `Scripts/dmg_volume.sh`, which both scripts source, so the image the author inspects
 is decorated exactly like the image that ships.
+
+Hidden flags do not override Finder's **Show Hidden Files** setting. The frozen
+layout positions `.background`, `.VolumeIcon.icns`, and `.fseventsd` to the right of
+the visible installer artwork, so they do not overlap the app or drag target when
+that setting is enabled. They are still discoverable by scrolling; this is layout
+polish, not access protection. The volume icon is added after Finder's first layout
+pass, then its position is frozen in a second pass. Do not assume Finder always
+suppresses it.
+
+Both staging paths seed `.fseventsd/no_log` **before** the first mount. Deleting
+`.fseventsd` is insufficient: macOS can recreate it with event logs during unmount.
+The sentinel directory is deliberately retained and positioned off-window.
+
+After mounting the **finished** DMG, run `bash Scripts/check_dmg_layout.sh`
+(or pass its absolute mount path). This GUI integration check verifies the
+background file exists, event logging is disabled with no shipped logs, the install
+icons match the artwork's centres, and every listed support item is beyond the window's right edge.
+It also checks all three known support positions regardless of hidden-file settings.
+Open the finished image through Finder (`open dist/ScreenCaptureAll-<version>-<arch>.dmg`)
+and check that exact mount path; avoid duplicate mounts of older images. The check
+does not change Finder preferences or inspect rendered pixels. Visually check the
+artwork and initial scroll position with hidden files
+both shown and hidden before releasing. This check needs Finder Automation
+permission and is not part of headless `swift test` or CI.
 
 Two Finder behaviours are load-bearing and are why the packaging script does things the long
 way:
@@ -146,9 +170,11 @@ way:
 - macOS deletes an *invalid* `.DS_Store` when the volume unmounts, so the layout file must be
   one Finder wrote. A hand-made placeholder silently disappears.
 
-Window geometry is duplicated between the Swift renderer and `Scripts/make_dmg_layout.sh`
-together with the measured `position`-setter offset; change both together and look at the
-preview before committing a new `DotDSStore`.
+Window geometry is duplicated between the Swift renderer, `Scripts/make_dmg_layout.sh`,
+and the integration check's expected icon centres. Change them together and inspect
+the remounted preview before committing a new `DotDSStore`. Do not compensate for
+unpositioned support files with an offset on the app icons; position all support
+files explicitly instead.
 
 Use these app metadata values:
 
