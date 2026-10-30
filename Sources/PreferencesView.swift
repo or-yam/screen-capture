@@ -44,6 +44,7 @@ struct PreferencesView: View {
                 }
 
                 folderStatusRow
+                    .background(PreferencesScrollViewConfiguration())
 
                 LabeledContent("Save confirmation") {
                     Toggle("Show after successful save", isOn: $preferences.showsSaveConfirmation)
@@ -115,8 +116,10 @@ struct PreferencesView: View {
             }
         }
         .formStyle(.grouped)
+        // Grouped sections already provide a 20-point horizontal inset.
+        .contentMargins(.horizontal, 0, for: .scrollContent)
         .controlSize(.small)
-        .padding(20)
+        .padding(.vertical, 20)
         .frame(minWidth: 560, idealWidth: 620, minHeight: 460, idealHeight: 520)
         .onAppear(perform: refreshScreenRecordingStatus)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
