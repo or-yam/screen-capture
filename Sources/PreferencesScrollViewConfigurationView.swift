@@ -8,8 +8,7 @@ final class PreferencesScrollViewConfigurationView: NSView {
 
     func configureScrollView() {
         guard let scrollView = enclosingScrollView else { return }
-        // Overlay scrollers stay at the window edge without consuming a content gutter.
-        scrollView.scrollerStyle = .overlay
+        // Keep the system's scrollbar visibility preference; only reduce its size.
         scrollView.verticalScroller?.controlSize = .small
     }
 }
