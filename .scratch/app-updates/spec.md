@@ -11,13 +11,17 @@ This draft contains documentation only. It does not enable network requests, add
 
 See [research and primary sources](research.md) and [implementation plan](plan.md).
 
+## Confirmed prompt timing
+
+Automatic checks and user-initiated manual checks are accepted. **Never show update prompts during an active capture session.** This includes results from checks started before capture began. Pending prompts wait until the session ends. This is a product requirement; the implementation must prove it can enforce it.
+
 ## Proposed v1 behavior
 
 - “Check for Updates…” in the status menu and an Updates section in both Preferences entry points. Show installed version/build, a manual check button, and “Automatically check for updates.”
 - Use one retained Sparkle standard updater/controller with shared observable state. Sparkle owns its preference persistence and native dialogs for checking, no update, errors, release notes, and installation.
 - Propose Sparkle's opt-in automatic-check prompt; leave `SUEnableAutomaticChecks` unset. Scheduled checks follow the user's choice. Manual checks remain available when scheduled checks are off.
 - Every installation requires user approval. Set `SUAutomaticallyUpdate=NO` and `SUAllowsAutomaticUpdates=NO` so standard UI cannot offer silent installation. Automatic checking does not mean automatic installation. No profiling or telemetry is added.
-- While a capture session is active, disable manual checks with an explanation in Preferences; defer background checks/presentation. If a check was already running when capture began, defer its disruptive UI/install step until idle. No update can discard selection, annotations, or an in-progress export.
+- While a capture session is active, disable manual checks with an explanation in Preferences and defer new background checks. Suppress all updater dialogs during preparation, selection, annotation, and export, including update offers, no-update/error alerts, automatic-check permission prompts, and installation/relaunch prompts. If an automatic or manual check was already running when capture began, hold its pending UI until the session ends. No update can discard selection, annotations, or an in-progress export.
 - Before update-driven termination, reserve an idle installation window and reject new capture triggers until installation is canceled or the app exits. Failed capture/export paths must not leave updates permanently blocked.
 - Keep `com.oryam.ScreenCaptureAll`, app name, and `/Applications/ScreenCaptureAll.app` stable. Existing users manually install the first updater-bearing release once. Do not promise Screen Recording approval survives the signing transition or every future update.
 - Debug/diagnostic/bare SwiftPM runs do not initialize the production updater or consume its feed. An explicit isolated updater QA build uses its own identity, path, feed, and keys.
@@ -44,7 +48,7 @@ Include custom packaging, secure CI publication, diagnostic isolation, session d
 - Both Preferences paths and the menu share updater state. Unavailable/check-in-progress states disable duplicate checks. Preferences remains useful with the menu icon hidden.
 - Two separately packaged versions update end-to-end, relaunch exactly once, preserve app settings/path, and report the new version/build. No unapproved install occurs.
 - No-update, offline, failed download, corrupt/tampered archive, invalid signature, and installation failure are handled without replacing a working app with unverified code.
-- Capture preparation, selection, annotation, export, Escape, failures, and check/capture/install races satisfy the session protection rule.
+- Capture preparation, selection, annotation, export, Escape, failures, and check/capture/install races satisfy the session protection rule. Start each automatic/manual check before capture, then deliver update-found, no-update, and error results during capture: no updater dialog appears or steals focus. Pending UI resumes only after the session ends, without duplicate prompts. Include the automatic-check permission prompt in this QA.
 - Framework/helper linkage and signatures validate after extracting final ZIP/DMG. Launch from an isolated location without access to checkout or `.build`; test arm64 and x86_64 (hardware evidence required for each).
 - Diagnostic builds cannot update or replace production; production feed/key settings cannot leak into routine diagnostic runs.
 - Publication tests reject lower/equal builds, reordered tag jobs, missing assets, unavailable downloads, and changed bytes under an existing version. Failed feed deployment preserves the previous valid feed.
