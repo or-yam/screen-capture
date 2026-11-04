@@ -5,6 +5,50 @@ import Testing
 @MainActor
 struct CaptureCoordinatorTests {
     @Test(.timeLimit(.minutes(1)))
+    func deniedPermissionDoesNotStartSnapshotsAndCanBeRetried() async {
+        let capture = ControlledScreenshotCapture()
+        let overlay = RecordingCaptureOverlay()
+        var isAllowed = false
+        let coordinator = makeCoordinator(capture: capture, overlay: overlay, prepareForCapture: { isAllowed })
+        var events = overlay.events.makeAsyncIterator()
+
+        coordinator.startRegionCapture()
+        #expect(await capture.requestCount == 0)
+        #expect(overlay.cancelCount == 0)
+        #expect(overlay.startCount == 0)
+
+        isAllowed = true
+        coordinator.startRegionCapture()
+        await capture.waitForRequest()
+        await capture.completeRequest()
+        #expect(await events.next() == .started)
+        #expect(await capture.requestCount == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func reentrantTriggerDuringPermissionRequestIsIgnored() async {
+        let capture = ControlledScreenshotCapture()
+        let overlay = RecordingCaptureOverlay()
+        var permissionChecks = 0
+        weak var reentrantCoordinator: CaptureCoordinator?
+        let coordinator = makeCoordinator(capture: capture, overlay: overlay) {
+            permissionChecks += 1
+            // Native permission UI can run a nested event loop and deliver another shortcut.
+            if permissionChecks == 1 { reentrantCoordinator?.startRegionCapture() }
+            return true
+        }
+        reentrantCoordinator = coordinator
+        var events = overlay.events.makeAsyncIterator()
+
+        coordinator.startRegionCapture()
+        await capture.waitForRequest()
+        await capture.completeRequest()
+        #expect(await events.next() == .started)
+        #expect(permissionChecks == 1)
+        #expect(await capture.requestCount == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
     func repeatedTriggersAreIgnoredUntilSnapshotsFinish() async {
         let capture = ControlledScreenshotCapture()
         let overlay = RecordingCaptureOverlay()
@@ -54,14 +98,16 @@ struct CaptureCoordinatorTests {
 
     private func makeCoordinator(
         capture: ControlledScreenshotCapture,
-        overlay: RecordingCaptureOverlay
+        overlay: RecordingCaptureOverlay,
+        prepareForCapture: @escaping () -> Bool = { true }
     ) -> CaptureCoordinator {
         let preferences = PreferencesStore()
         return CaptureCoordinator(
             preferences: preferences,
             overlayController: overlay,
             screenshotService: capture,
-            saveService: SaveService(preferences: preferences)
+            saveService: SaveService(preferences: preferences),
+            prepareForCapture: prepareForCapture
         )
     }
 }

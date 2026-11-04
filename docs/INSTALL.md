@@ -8,8 +8,9 @@ and Intel Macs that can run macOS 26. This is a menu-bar app, not a Dock app.
 1. Download the DMG from https://github.com/or-yam/screen-capture/releases/latest.
    If the repository is private, you must be signed in with repository access.
 2. Open the DMG and drag ScreenCaptureAll into Applications.
-3. Eject the disk image, then open ScreenCaptureAll from Applications.
-   Do not run it from the disk image.
+3. Open ScreenCaptureAll from Applications, not from the disk image.
+   You can eject the image in Finder, or choose **Eject Installer** from the app's
+   menu when the matching installer is still mounted. This does not delete the DMG.
 
 The ZIP is an alternative: unzip it, then move ScreenCaptureAll.app into Applications.
 
@@ -70,10 +71,15 @@ first. A fresh browser download may carry quarantine again after an update.
 
 ## Allow Screen Recording
 
-Open System Settings → Privacy & Security → Screen & System Audio Recording
-(the name varies by macOS version). Enable ScreenCaptureAll. If it is missing,
-click + and select /Applications/ScreenCaptureAll.app. Quit and reopen the app if
-macOS requests it; do not launch a second copy.
+On first launch, the app requests Screen Recording access and opens the relevant
+System Settings pane if access is still denied. Enable ScreenCaptureAll. Quit and
+reopen the app if macOS requests it; do not launch a second copy. Setup does not
+repeat after relaunch, and permission is rechecked when you return to the app.
+
+If access is denied later, **Capture Region** or **Enable Screen Recording...** in
+the app's menu opens permission recovery. You can also open System Settings →
+Privacy & Security → Screen & System Audio Recording (the name varies by macOS
+version). If the app is missing, click + and select /Applications/ScreenCaptureAll.app.
 
 Screen Recording is required. Accessibility is not required.
 

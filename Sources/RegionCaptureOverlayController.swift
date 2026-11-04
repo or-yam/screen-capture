@@ -83,7 +83,7 @@ final class RegionCaptureOverlayController: CaptureOverlay {
         let alert = makeAlert(for: error)
         let response = alert.runModal()
         if isScreenRecordingPermissionDenied(error), response == .alertFirstButtonReturn {
-            openScreenRecordingSettings()
+            ScreenRecordingPermissionController.openSystemSettings()
         }
         cancel()
     }
@@ -109,7 +109,6 @@ final class RegionCaptureOverlayController: CaptureOverlay {
 
         if isScreenRecordingPermissionDenied(error) {
             alert.messageText = "Screen Recording permission required"
-            alert.informativeText = "Enable Screen Recording for this app in System Settings, then try again."
             alert.addButton(withTitle: "Open System Settings")
             alert.addButton(withTitle: "Close")
         } else {
@@ -127,14 +126,6 @@ final class RegionCaptureOverlayController: CaptureOverlay {
         }
 
         return false
-    }
-
-    private func openScreenRecordingSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
-            return
-        }
-
-        NSWorkspace.shared.open(url)
     }
 
     private func setSelectedRegionFromFrozenSnapshots(_ rect: CGRect) {

@@ -43,7 +43,7 @@ For selection, annotation, Move/resize, or multi-display work, read [NEW_PRD.md 
   ```
 
 - The launcher builds debug, packages with `NSHighResolutionCapable`, signs with the stable certificate, records source/build identity, and launches without forcing a new instance. It refuses to run while a `ScreenCaptureAll` process exists. Do not kill arbitrary matching processes without identifying them and getting authorization.
-- Screen Recording approval is per app identity. Add the diagnostic `.app` in System Settings → Privacy & Security → Screen & System Audio Recording (wording varies by macOS). The current app preflights permission but does not explicitly request it, so the user may need to add it using **+**. The installed app's approval does not imply diagnostic approval.
+- Screen Recording approval is per app identity. First launch requests missing access and opens the relevant Settings pane; later recovery is available through Capture Region or Enable Screen Recording in the menu. If the diagnostic `.app` is missing from System Settings → Privacy & Security → Screen & System Audio Recording (wording varies by macOS), add it using **+**. The installed app's approval does not imply diagnostic approval.
 - Transitioning from ad-hoc to certificate signing may require removing/re-adding the old diagnostic permission entry once. Stable signing should reduce repeated approval, not guarantee macOS never requests renewal. Never reset TCC globally as routine troubleshooting.
 - macOS may quit/relaunch the app after approval. Check `pgrep -fl ScreenCaptureAll`; do not start a duplicate. That relaunch can drop `SCREEN_CAPTURE_DIAGNOSTICS_DIR`. Quit that instance and restore diagnostics without rebuilding:
 
