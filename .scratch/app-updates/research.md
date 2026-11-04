@@ -4,13 +4,13 @@ Date: **2026-10-30**. Research only; no implementation, builds, signing changes,
 
 ## Recommendation
 
-Use **Sparkle 2.10.1** with its standard UI, scheduled checks, and user-confirmed installation. Retain SwiftPM and custom packaging. Treat HTTPS delivery, nested signing, release ordering, capture lifecycle protection, and diagnostic isolation as required scope—not follow-ups after adding a menu item. Decide hosting and distribution signing before calling the feature release-ready.
+Use **Sparkle 2.10.1** with scheduled checks and user-confirmed installation. Standard UI alone cannot meet the subsequently confirmed capture timing rule; prototype a custom user-driver boundary before implementation. Retain SwiftPM and custom packaging. Treat HTTPS delivery, nested signing, release ordering, capture lifecycle protection, and diagnostic isolation as required scope—not follow-ups after adding a menu item. Decide hosting and distribution signing before calling the feature release-ready.
 
 **Confirmed:** GitHub's latest stable Sparkle release is **2.10.1**, published **2026-10-25 14:36:36 UTC**, `prerelease=false` (checked using `gh api repos/sparkle-project/Sparkle/releases/latest`). Its package is a checksummed binary target, Swift tools 5.5, minimum macOS 12; the app's tools 5.9/macOS 26 declarations satisfy those declared minimums. This establishes declared compatibility, not a tested universal CLI integration. [Official release](https://github.com/sparkle-project/Sparkle/releases/tag/2.10.1), [versioned package manifest](https://github.com/sparkle-project/Sparkle/blob/2.10.1/Package.swift).
 
 ## Worktree findings — confirmed locally
 
-Inspected revision `515432192687a502a64e77bf6e3935be79dd1fec` in `/Users/oryam/Developer/screen-capture-app-updates`:
+Inspected revision `515432192687a502a64e77bf6e3935be79dd1fec` (the planning worktree):
 
 - [Package.swift](../../Package.swift): executable SwiftPM target, macOS 26, no dependencies or Xcode project required by the current build.
 - [ScreenCaptureAllApp.swift](../../Sources/ScreenCaptureAllApp.swift): `AppDelegate` retains the menu/capture controllers and uses accessory activation. Both a SwiftUI Settings scene and a separately created preferences window exist; updater state must reach both.
@@ -71,7 +71,7 @@ Inspected revision `515432192687a502a64e77bf6e3935be79dd1fec` in `/Users/oryam/D
 
 **Confirmed locally:** [CaptureCoordinator](../../Sources/CaptureCoordinator.swift) tracks only `isPreparingCapture`; it resets after snapshots/overlay startup, while capture/annotation continues. [CaptureOverlay](../../Sources/CaptureOverlay.swift) has no session-end observation; Escape closes internally in [RegionCaptureOverlayController](../../Sources/RegionCaptureOverlayController.swift). That flag cannot protect an entire session.
 
-**Confirmed:** Sparkle can veto new checks through `updater(_:mayPerform:)`; versioned headers provide a relaunch-postponement callback, but explicitly document cases where it is not called. On-quit installation cannot be universally blocked by returning a value from its notification callback. [Delegate API](https://sparkle-project.org/documentation/api-reference/Protocols/SPUUpdaterDelegate.html), [2.10.1 delegate header](https://github.com/sparkle-project/Sparkle/blob/2.10.1/Sparkle/SPUUpdaterDelegate.h).
+**Confirmed:** Sparkle can veto new checks through `updater:mayPerformUpdateCheck:error:`; versioned headers provide a relaunch-postponement callback, but explicitly document cases where it is not called. On-quit installation cannot be universally blocked by returning a value from its notification callback. [Delegate API](https://sparkle-project.org/documentation/api-reference/Protocols/SPUUpdaterDelegate.html), [2.10.1 delegate header](https://github.com/sparkle-project/Sparkle/blob/2.10.1/Sparkle/SPUUpdaterDelegate.h).
 
 **Proposal:** define busy state from preparation through selection/annotations/export and all error/cancel paths. Defer new automatic checks and update presentation while busy, and disable manual check entry points. Handle the race where capture starts after a check/download: reserve an idle installation window, block new capture starts while quitting for update, and use postponement plus termination handling where applicable. Never auto-discard a selection. Verify resume after Copy/Save/Escape, failed export, and failed preparation; cancellation/scheduler retry details need implementation verification. Dockless apps need attention handling; Sparkle's gentle-reminder API can expose an update indicator without stealing focus, but does not itself provide a capture lock. [Gentle reminders](https://sparkle-project.org/documentation/gentle-reminders/).
 
@@ -79,9 +79,16 @@ Inspected revision `515432192687a502a64e77bf6e3935be79dd1fec` in `/Users/oryam/D
 
 ## Recommended scope for the parent's plan/draft PR
 
-Include standard Sparkle integration, menu/Preferences manual checks, one check preference, explicit no automatic installation, capture lifecycle safeguards, custom framework/signing packaging, isolated diagnostics, numeric version guards, CI-signed archive/appcast publication, and updated distribution/bootstrap documentation. Defer deltas, beta channels, custom updater UI, silent installs, and authenticated private-download infrastructure unless specifically required.
+Include Sparkle integration with a capture-aware presentation boundary, menu/Preferences manual checks, one check preference, explicit no automatic installation, capture lifecycle safeguards, custom framework/signing packaging, isolated diagnostics, numeric version guards, CI-signed archive/appcast publication, and updated distribution/bootstrap documentation. Defer deltas, beta channels, cosmetic custom updater UI, silent installs, and authenticated private-download infrastructure unless specifically required.
 
 Acceptance evidence should include `swift test`, universal offline-from-checkout launch/linkage, extracted archive signature verification, two real packaged versions updating end-to-end, tampered archive rejection, offline/no-update handling, preference persistence, capture race/deferral, read-only/translocated install behavior, diagnostic exclusion, and first-install/upgrade Screen Recording behavior. Signed/notarized macOS manual QA is still required; none was performed in this research.
+
+## Review follow-up — verified facts
+
+- **UI limitation:** the standard driver's scheduled-offer deferral is not a veto for completed manual-check results. Its no-update/error alerts call notification delegates then `runModal`. The confirmed capture requirement needs a custom `SPUUserDriver` boundary or another proven architecture, investigated in plan step 0. [2.10.1 standard driver](https://github.com/sparkle-project/Sparkle/blob/2.10.1/Sparkle/SPUStandardUserDriver.m), [delegate](https://github.com/sparkle-project/Sparkle/blob/2.10.1/Sparkle/SPUStandardUserDriverDelegate.h).
+- **Tool provenance:** downloaded the 2.10.1 SwiftPM ZIP without executing its contents, matched SHA-256 `4c2e48a3e50ebcc2c88a58a4c7264a1a99c3c31857ce754357afb9cdb323022a` to its manifest, and listed `bin/generate_appcast` and `bin/sign_update` inside it. A separate tarball is unnecessary; implementation must verify and use this same pinned artifact. [Manifest](https://github.com/sparkle-project/Sparkle/blob/2.10.1/Package.swift).
+- **Key loss:** not universally irreversible: Developer ID continuity supports EdDSA rotation. Verify-before-extraction restricts key-change recovery to a Developer ID-signed DMG. Loss of all applicable trust paths can force manual reinstall. Require backups, custody, and a recovery/rotation rehearsal rather than assuming a new key alone works. [Official rotation rules](https://sparkle-project.org/documentation/#rotating-signing-keys).
+- **Profiling:** upstream documents it as optional, not on by default. Set `SUEnableSystemProfiling=NO`, provide an empty allowed-profile-key list, and verify requests. Do not invent `SUAllowsSystemProfiling`. [Profiling docs](https://sparkle-project.org/documentation/system-profiling/), [settings](https://sparkle-project.org/documentation/customization/).
 
 ## Unresolved questions
 
