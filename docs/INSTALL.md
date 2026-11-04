@@ -15,14 +15,58 @@ The ZIP is an alternative: unzip it, then move ScreenCaptureAll.app into Applica
 
 ## First launch: macOS security warning
 
-These friend-testing builds are ad-hoc signed, not Apple Developer ID signed or
-notarized. macOS can block a downloaded app from an unidentified developer.
+These friend-testing builds are ad-hoc signed. They are not Apple Developer ID
+signed and not notarized. A browser-downloaded build normally triggers a first-launch
+Gatekeeper block such as:
 
-Only if you trust the source: attempt to open the app, then go to System Settings
-→ Privacy & Security, find the blocked-app notice, and choose Open Anyway.
-Authenticate and confirm Open when asked. Managed Macs may prohibit this override.
-Do not disable Gatekeeper globally. If macOS reports malware or a damaged app,
-stop and report the exact message rather than bypassing that warning.
+> **"ScreenCaptureAll" Not Opened**
+> Apple could not verify "ScreenCaptureAll" is free of malware that may harm your
+> Mac or compromise your privacy.
+> [Done] [Move to Trash]
+
+This warning means macOS cannot verify the app for normal distribution. It is not
+the same as an explicit malware-detection alert, and it is not proof the app is safe.
+See [Apple's explanation of these alerts](https://support.apple.com/en-us/102445).
+
+That said, do not click through it reflexively. A screen capture app can see
+everything on your screen, so only continue if you got the file from this project's
+GitHub Releases page and you trust whoever built it.
+
+To open the app:
+
+1. In the alert above, click **Done** — do not click **Move to Trash**.
+2. Open System Settings → Privacy & Security.
+3. Find the notice that ScreenCaptureAll was blocked, and click **Open Anyway**.
+4. Authenticate, then confirm **Open** when asked.
+
+Notes:
+
+- The **Open Anyway** button only appears after you have attempted a launch at
+  least once. If you do not see it, try opening the app first.
+- Control-click → Open no longer bypasses this. macOS 15 removed that shortcut
+  for apps that are not signed correctly or notarized.
+- Do not disable Gatekeeper globally, do not enable "Allow applications from
+  Anywhere", and do not run `spctl --global-disable`.
+- Managed Macs may forbid the Open Anyway override entirely. If yours does, this
+  build cannot be installed on it.
+
+If macOS instead says **"ScreenCaptureAll" is damaged and can't be opened** or
+**will damage your computer**, stop and report the exact wording. These are different
+alerts that can involve integrity or malware detection; do not bypass them using
+the steps below.
+
+### Option: skip the override using Terminal
+
+For a trusted build with a verified checksum, removing the download's quarantine
+attribute can avoid its first-launch Gatekeeper block. Prefer the System Settings
+override above. If you choose Terminal, run this **after** copying the app to
+Applications:
+
+    xattr -dr com.apple.quarantine /Applications/ScreenCaptureAll.app
+
+This is a security override, not signing or notarization. It does not disable all
+macOS malware protections or prove the app safe. Verify the SHA-256 checksum below
+first. A fresh browser download may carry quarantine again after an update.
 
 ## Allow Screen Recording
 
@@ -41,10 +85,12 @@ There is no automatic updater. Download the desired release, quit ScreenCaptureA
 from its menu, replace the app in Applications, then reopen it. Use the same path.
 Older versions are available on the GitHub Releases page.
 
-Ad-hoc signatures change with each build. macOS may block the new download or
-require Screen Recording approval again. If capture remains denied after enabling
-it and relaunching, remove only ScreenCaptureAll's permission entry, add the new
-app, and relaunch. Never reset all macOS privacy permissions as an update step.
+Updates may repeat both interruptions: a new browser download carries quarantine,
+and the ad-hoc signature changes when the signed build changes, so macOS may ask
+for the launch override and Screen Recording approval again. If capture remains
+denied after enabling it and relaunching, remove only ScreenCaptureAll's permission
+entry, add the new app, and relaunch. Never reset all macOS privacy permissions as
+an update step.
 
 ## Verify a download (optional)
 
@@ -53,8 +99,11 @@ folder, then run in Terminal from that folder:
 
     shasum -a 256 -c ScreenCaptureAll-*-SHA256SUMS.txt
 
-Both files should report OK. Checksums detect corruption; they are not a substitute
-for Developer ID signing and notarization.
+Both files should report OK. Verify them before launch, especially before using
+the Terminal override. Checksums show that files match the published release;
+they do not check for malware or replace Developer ID signing and notarization.
+These ad-hoc builds have no verified Developer ID publisher identity. A malicious
+release could publish a matching checksum too.
 
 ## Uninstall
 

@@ -47,6 +47,16 @@ if [[ ! -f "$ROOT/Resources/AppIcon.icns" ]]; then
   exit 1
 fi
 
+DMG_PYTHON="$ROOT/.build/dmg-tools/bin/python"
+DMG_LOCK=$(shasum -a 256 "$ROOT/Scripts/dmg-requirements.txt" | awk '{print $1}')
+[[ -x "$DMG_PYTHON" && -f "$ROOT/.build/dmg-tools/.requirements-sha256" &&
+   "$(cat "$ROOT/.build/dmg-tools/.requirements-sha256")" == "$DMG_LOCK" ]] ||
+  fail "DMG tools missing or out of date; run: bash Scripts/setup_dmg_tools.sh (Python 3.10+)"
+for asset in settings.py background.png background@2x.png; do
+  [[ -f "$ROOT/Resources/dmg/$asset" ]] || fail "Missing DMG input: Resources/dmg/$asset"
+done
+[[ -x /usr/bin/SetFile ]] || fail "SetFile is missing; install the Xcode Command Line Tools"
+
 echo "Building $APP_NAME ($CONFIGURATION; $ARCHES)"
 swift build "${BUILD_ARGS[@]}" --product ScreenCaptureAll
 
@@ -125,13 +135,20 @@ echo "Creating $ZIP_NAME"
 )
 
 echo "Creating $DMG_NAME"
-mkdir "$STAGING_DIR/dmg"
-ditto "$APP_BUNDLE" "$STAGING_DIR/dmg/$APP_NAME.app"
-ln -s /Applications "$STAGING_DIR/dmg/Applications"
-cp "$ROOT/docs/INSTALL.md" "$STAGING_DIR/dmg/Read Me.txt"
-hdiutil create -volname "$APP_NAME" -srcfolder "$STAGING_DIR/dmg" \
-  -format UDZO -ov "$STAGING_DIR/$DMG_NAME"
+# The engine owns mounting, Retina TIFF generation and Finder metadata. All
+# outputs stay in staging until the finished image has passed validation.
+mkdir "$STAGING_DIR/events"
+touch "$STAGING_DIR/events/no_log"
+"$DMG_PYTHON" -m dmgbuild -s "$ROOT/Resources/dmg/settings.py" \
+  -D "root=$ROOT" -D "app=$APP_BUNDLE" -D "events=$STAGING_DIR/events" \
+  "$APP_NAME" "$STAGING_DIR/$DMG_NAME"
 hdiutil verify "$STAGING_DIR/$DMG_NAME"
+CHECK_ARGS=("$ROOT/Scripts/check_dmg.py" "$STAGING_DIR/$DMG_NAME"
+  --app-name "$APP_NAME" --bundle-id "$BUNDLE_ID" --version "$MARKETING_VERSION" --build-number "$BUILD_NUMBER")
+for arch in "${ARCH_ARRAY[@]}"; do
+  CHECK_ARGS+=(--arch "$arch")
+done
+"$DMG_PYTHON" "${CHECK_ARGS[@]}"
 (
   cd "$STAGING_DIR"
   shasum -a 256 "$DMG_NAME" "$ZIP_NAME" > "$CHECKSUM_NAME"

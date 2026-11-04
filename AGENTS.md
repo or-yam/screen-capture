@@ -24,6 +24,7 @@ For selection, annotation, Move/resize, or multi-display work, read [NEW_PRD.md 
 
 - Version lives in [VERSION](VERSION); `Scripts/package_app.sh` reads it and CI rejects a `v*` tag that disagrees with it. Bump the file and tag the commit to release.
 - Releases are published by [.github/workflows/build.yml](.github/workflows/build.yml) as a universal DMG + ZIP with SHA-256 checksums. Do not hand-upload assets.
+- For DMG packaging or layout changes, read [docs/DISTRIBUTION.md — DMG window layout](docs/DISTRIBUTION.md#dmg-window-layout). Keep reviewed artwork and text settings as inputs; generate Finder metadata during packaging and validate the finished image before replacing outputs.
 - Builds are ad-hoc signed and not notarized. Do not claim a download opens without the Gatekeeper override; see [docs/INSTALL.md](docs/INSTALL.md).
 - Keep the bundle identifier and app path stable across releases, or testers must re-approve Screen Recording.
 

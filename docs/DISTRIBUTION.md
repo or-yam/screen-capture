@@ -61,7 +61,7 @@ ScreenCaptureAll-0.1.0-universal.zip
 ScreenCaptureAll-0.1.0-universal-SHA256SUMS.txt
 ```
 
-The DMG is the primary download: it contains the app, an `Applications` symlink for drag-install, and a copy of `docs/INSTALL.md`. The ZIP is the alternative for people who prefer it. Both contain the same universal (arm64 + x86_64) app.
+The DMG is the primary download: it carries a custom volume icon and a Finder window with a background image, the app, and an `Applications` symlink for drag-install. The ZIP is the alternative for people who prefer it. Both contain the same universal (arm64 + x86_64) app. Neither includes a copy of `docs/INSTALL.md`; the window points at the drag target instead.
 
 The DMG does **not** bypass Gatekeeper. It is ad-hoc signed, so testers still approve it once in Privacy & Security. A DMG is worth shipping because it makes the install target obvious; it is not a substitute for notarization.
 
@@ -89,7 +89,9 @@ The script should:
 - Set executable permissions.
 - Strip extended attributes before signing or zipping.
 - Ad-hoc sign the app for personal use.
-- Zip the app bundle and build a drag-install DMG.
+- Zip the app bundle.
+- Build a drag-install DMG with generated Finder metadata, the approved artwork and
+  volume icon, then validate the compressed read-only image.
 - Write SHA-256 checksums and verify both archives before touching previous outputs.
 
 `ARCHES="arm64 x86_64"` produces a universal build. Release builds always use it; a bare local run stays single-architecture to keep iteration fast. The version defaults to [VERSION](../VERSION).
@@ -114,6 +116,78 @@ Leftover `.package.*` staging directories from a crashed run are reported but no
 
 Icon handling is mandatory: the script requires `Resources/AppIcon.icns`, copies it to `Contents/Resources/AppIcon.icns`, and sets `CFBundleIconFile` to `AppIcon`. Regenerate the asset first with `bash Scripts/build_app_icon.sh` if it is missing. `Resources/AppIcon-Dark.icns` is an alternative asset for future dark-appearance support; it is not copied and not automatic appearance switching.
 
+### DMG window layout
+
+Install the isolated build tools once with Python 3.10 or newer:
+
+```sh
+bash Scripts/setup_dmg_tools.sh
+# To select another installed interpreter:
+# PYTHON=/path/to/python3 bash Scripts/setup_dmg_tools.sh
+```
+
+CI provisions Python 3.13. `Scripts/dmg-requirements.txt` pins the engine and both
+transitive dependencies to exact, SHA-256-verified pure-Python wheels. Setup uses a
+private `.build/dmg-tools/` environment, not global pip packages. Re-run setup after
+changing the lock file. No automatic unpinned upgrades are performed.
+Initial setup needs PyPI access (or a populated wheel cache); the wheels are not
+vendored. Packaging uses the installed environment without downloading tools.
+
+- `Resources/dmg/settings.py` owns the Finder layout and support-file positions.
+  Packaging and the finished-image check read that same configuration.
+  Absolute window placement is best-effort across displays; the saved dimensions
+  and icon centres are the layout contract.
+- `background.png` and `background@2x.png` are the authoritative, reviewed artwork.
+  Keep them in Git as design inputs; edit/export both together when changing the
+  design. There is no second in-repo artwork renderer to maintain.
+- `dmgbuild` combines both resolutions into `.background.tiff` and generates a
+  valid `.DS_Store` during packaging. Neither generated file belongs in Git.
+- A small supported `create_hook` preserves the existing volume-icon creator code;
+  the engine handles the volume flag, copying, image conversion and cleanup.
+
+Hidden flags do not override **Show Hidden Files**. The layout puts the background,
+volume-icon file and `.fseventsd` beyond the window's right edge. They remain
+discoverable by scrolling; this is presentation, not access protection. We supply
+`.fseventsd/no_log` through the engine's file list to suppress filesystem event logs
+and validate the final image after unmount, not merely the staging directory.
+
+Before replacing `dist/`, every package is mounted read-only and checked by
+`Scripts/check_dmg.py`: Finder metadata and background references, icon positions,
+Retina image dimensions, volume icon, Applications link, absence of event logs,
+app identity/signature and requested architectures. It detaches its own mount on
+success or failure. The check needs no Finder session, Automation or Screen
+Recording permission. Its regression tests run separately from `swift test`.
+
+This verifies metadata and files, **not rendered pixels**. Before release, download
+the CI artifact and inspect it through Finder with hidden files both shown and
+hidden, checking artwork, initial scroll position and drag-install. Eject old copies
+before opening the image to avoid confusing duplicate mount names.
+
+#### Tool choice and alternatives
+
+PR #4 compared these approaches against the approved artwork and actual final-image
+metadata. Popularity was context, not a substitute for compatibility testing.
+
+| Approach | Evidence and tradeoff | Decision |
+| --- | --- | --- |
+| Custom scripts + frozen layout | Working baseline; no third-party runtime, but GUI-only authoring, an opaque committed layout and duplicated geometry. | Replaced after the new path passed local and universal CI validation. |
+| [create-dmg 1.3.0](https://github.com/create-dmg/create-dmg/tree/v1.3.0) | Local trial reproduced the artwork and geometry. It uses Finder/AppleScript on every decorated build; headless modes skip decoration. CI compatibility was not tested. A clean image without `.fseventsd` is valid, not a failure. | Valid alternative, but retains a GUI dependency we can avoid. |
+| [dmgbuild 1.6.7](https://dmgbuild.readthedocs.io/en/latest/) | Local trial reproduced geometry, Retina artwork, portable background aliases and app signature without Finder. Cost: Python 3.10+, two pure-Python dependencies and a tiny icon hook. | Selected; dependency versions and wheel hashes are locked. |
+| [sindresorhus/create-dmg](https://github.com/sindresorhus/create-dmg) | Source/docs review only: deliberately opinionated design and a Node/native-addon dependency chain. Its public options do not express our custom artwork/layout. | Good for its default design, not this one. |
+| [appdmg](https://github.com/LinusU/node-appdmg) | Source/docs review only: customizable and GUI-free, but includes native Node add-ons and had no upstream push since 2023 at evaluation time. | More dependency-maintenance risk for this project. |
+| Plain `hdiutil` image | Smallest native-only option, but omits the approved custom Finder presentation. | Suitable if branding is dropped later. |
+
+[CI proof on macOS 26](https://github.com/or-yam/screen-capture/actions/runs/39105742335)
+installed the hash-locked environment with Python 3.13, passed the packaging tests,
+and produced a universal DMG/ZIP with successful final-image validation. Local
+Finder inspection also reported the approved icon positions. Neither proves
+rendered-pixel appearance; keep the manual release check above.
+
+The goal is a repeatable build procedure, not byte-identical DMGs: image timestamps
+and identifiers can change. Dependency locks do not make third-party code risk-free;
+review updates and rerun the final-artifact checks. All evaluated engines still use
+macOS disk-image tools, whose compatibility must be maintained as macOS evolves.
+
 Use these app metadata values:
 
 - `CFBundleName`: `ScreenCaptureAll`
@@ -133,17 +207,18 @@ Use these app metadata values:
 
 ### Ad-Hoc Signing
 
-Use this for personal builds:
+Use this for personal builds, and it is what the current friend-testing releases ship with:
 
 ```bash
 codesign --force --sign - ScreenCaptureAll.app
 ```
 
-This gives the bundle a code signature without requiring an Apple Developer account. It does not remove all first-run friction for downloaded builds.
+This gives the bundle a code signature without requiring an Apple Developer account. It does not remove first-run friction for downloaded builds, and because the signature is derived from the binary, every build is a new identity to macOS — both Gatekeeper and the Screen Recording permission entry see it as a different app.
 
 ### Developer ID Signing And Notarization
 
-Use this only if other people are downloading the app and the Gatekeeper flow becomes annoying enough to justify the ceremony.
+Developer ID signing and notarization are the intended production distribution path.
+They are not configured by the DMG-layout work; treat their setup as a separate change.
 
 This requires a paid Apple Developer account and a Developer ID Application certificate.
 
@@ -151,20 +226,22 @@ High-level flow:
 
 ```bash
 codesign --force --timestamp --options runtime --sign "Developer ID Application: Name (TEAMID)" ScreenCaptureAll.app
+ditto -c -k --keepParent ScreenCaptureAll.app ScreenCaptureAll.zip
 xcrun notarytool submit ScreenCaptureAll.zip --keychain-profile "notary-profile" --wait
 xcrun stapler staple ScreenCaptureAll.app
 ```
 
 Notarized DMG or ZIP is the best public-download experience because it removes the Gatekeeper override, but it is not required to share a build with friends.
 
-If notarization is added, prefer `--options runtime` on the app *and* the nested binary, keep the DMG as the notarized artifact, and stamp the app before building the DMG:
+If notarization is added, note three constraints before choosing an order. The notary service accepts only a ZIP, a UDIF disk image, or a signed flat installer package — never a bare `.app`. Gatekeeper ingests a disk image's ticket when Finder opens it, not when something mounts it with `hdiutil`, and the ZIP path never opens a disk image at all. So notarize and staple the app in its own right, then repeat for the DMG:
 
-```bash
-xcrun notarytool submit ScreenCaptureAll-<version>-universal.dmg --keychain-profile "notary-profile" --wait
-xcrun stapler staple dist/ScreenCaptureAll.app
-```
+1. Sign the app, then notarize and staple it, as above.
+2. Build the shippable ZIP from the *stapled* app.
+3. Build the DMG from the *stapled* app, sign the DMG, notarize it, and staple it.
 
-Then rebuild the DMG, because stapling changes the app bytes. CI needs `APP_STORE_CONNECT_API_KEY_P8`, `APP_STORE_CONNECT_KEY_ID`, and `APP_STORE_CONNECT_ISSUER_ID` as secrets, and a Developer ID certificate imported into a temporary keychain. None of this is set up today.
+The DMG does not have to be signed to be notarized, but Apple's packaging documentation says to sign it, and doing so puts the image itself in the ticket. Do not re-sign or edit either artifact after stapling — that invalidates the ticket. Tickets are keyed by cdhash, so any rebuild needs a fresh notarization: an already-published ad-hoc release cannot be retro-notarized and must be re-signed and rebuilt.
+
+CI needs `APP_STORE_CONNECT_API_KEY_P8`, `APP_STORE_CONNECT_KEY_ID`, and `APP_STORE_CONNECT_ISSUER_ID` as secrets, plus a Developer ID certificate imported into a temporary keychain. None of this is set up today. Notarization takes minutes (98% under 15), is capped at 75 submissions per day, and `notarytool submit` needs `--wait --timeout` so a release job cannot hang.
 
 ## Permissions Notes
 
@@ -184,6 +261,7 @@ Ad-hoc signatures are derived from the binary, so every release is effectively a
 Build a local app bundle, DMG, and ZIP with:
 
 ```bash
+bash Scripts/setup_dmg_tools.sh
 ARCHES="arm64 x86_64" Scripts/package_app.sh
 ```
 

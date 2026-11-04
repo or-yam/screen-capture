@@ -194,15 +194,21 @@ For a freeze, note which display, whether it occurs during initial selection or 
 
 ### Installation And Releases
 
-Package the release binary into a real `.app` bundle, a DMG, and a ZIP:
+Package the release binary into a real `.app` bundle, a DMG, and a ZIP. The DMG
+engine needs Python 3.10+; its locked dependencies stay in a private build environment:
 
 ```bash
+bash Scripts/setup_dmg_tools.sh  # once, and after the DMG dependency lock changes
 Scripts/package_app.sh          # host architecture only, for fast local iteration
 ARCHES="arm64 x86_64" Scripts/package_app.sh   # universal, matches release output
 open dist/ScreenCaptureAll.app
 ```
 
-Outputs land in `dist/`: `ScreenCaptureAll.app`, `ScreenCaptureAll-<version>-<arch>.dmg`, the matching `.zip`, and a `-SHA256SUMS.txt` checksum file. The DMG contains the app, an `Applications` symlink, and the install notes.
+Outputs land in `dist/`: `ScreenCaptureAll.app`, `ScreenCaptureAll-<version>-<arch>.dmg`, the matching `.zip`, and a `-SHA256SUMS.txt` checksum file. The DMG contains the app and an `Applications` symlink in a branded drag-install window. Installation instructions are in [docs/INSTALL.md](docs/INSTALL.md), not inside the image.
+
+The package command validates the finished DMG without Finder before replacing
+existing outputs. See [DMG tooling and tradeoffs](docs/DISTRIBUTION.md#dmg-window-layout)
+for setup, artwork/layout changes, and the manual visual checks still needed before release.
 
 The version comes from [VERSION](VERSION); override it with `MARKETING_VERSION` and `BUILD_NUMBER` only for local experiments. Release builds use the `VERSION` file plus the CI run number as `CFBundleVersion`.
 
