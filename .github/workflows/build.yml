@@ -65,6 +65,9 @@ jobs:
       - name: Test packaging validation
         run: .build/dmg-tools/bin/python -m unittest discover -s Tests/Packaging -p 'test_*.py' -v
 
+      - name: Test Terminal installer
+        run: python3 -m unittest discover -s Tests/Installer -p 'test_*.py' -v
+
       - name: Package universal app, DMG, and ZIP
         env:
           ARCHES: arm64 x86_64
@@ -78,6 +81,7 @@ jobs:
           path: |
             dist/*.dmg
             dist/*.zip
+            dist/install.sh
             dist/*-SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
@@ -128,6 +132,7 @@ jobs:
           # partial release that a later retry would publish by tag.
           gh release create "$RELEASE_TAG" \
             dist/*.dmg dist/*.zip dist/*-SHA256SUMS.txt \
+            dist/install.sh \
             --verify-tag \
             --title "Screen Capture All $RELEASE_TAG" \
             --generate-notes --notes-file docs/RELEASE-NOTES.md
