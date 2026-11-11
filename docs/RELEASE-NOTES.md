@@ -1,3 +1,8 @@
+## This release
+
+v1.0.5 is the version-only update target for testing the GUI updater end to end
+from v1.0.4. Application behavior matches v1.0.4.
+
 ## Install / update
 
 - **macOS 26+**, Apple Silicon or Intel. Download the **universal DMG**, open it,
