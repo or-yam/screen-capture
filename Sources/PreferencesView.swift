@@ -5,6 +5,7 @@ import SwiftUI
 
 struct PreferencesView: View {
     @ObservedObject var preferences: PreferencesStore
+    var updates: AppUpdateController
     @StateObject private var screenRecordingStatus = ScreenRecordingPermissionStatus()
 
     private static let annotationSwatches: [AnnotationSwatch] = [
@@ -20,6 +21,17 @@ struct PreferencesView: View {
 
     var body: some View {
         Form {
+            Section("App") {
+                LabeledContent("Version", value: updates.currentVersion)
+                LabeledContent("Updates") {
+                    Button(updates.isBusy ? "Checking…" : "Check for Updates…", action: updates.checkForUpdates)
+                        .disabled(updates.isBusy || !updates.canUpdate)
+                }
+                Text(updates.canUpdate ? updates.status : "Updates are available in installed release builds.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Output") {
                 LabeledContent("Save folder") {
                     HStack(spacing: 8) {

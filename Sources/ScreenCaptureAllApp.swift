@@ -7,7 +7,7 @@ struct ScreenCaptureAllApp: App {
 
     var body: some Scene {
         Settings {
-            PreferencesView(preferences: appDelegate.preferences)
+            PreferencesView(preferences: appDelegate.preferences, updates: appDelegate.updates)
         }
     }
 }
@@ -15,6 +15,7 @@ struct ScreenCaptureAllApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let preferences = PreferencesStore()
+    let updates = AppUpdateController()
 
     private var menuBarController: MenuBarController?
     private var captureCoordinator: CaptureCoordinator?
@@ -37,6 +38,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             captureCoordinator: captureCoordinator,
             openPreferencesAction: { [weak self] in
                 self?.showPreferences()
+            },
+            checkForUpdatesAction: { [weak self] in
+                self?.showPreferences()
+                self?.updates.checkForUpdates()
             }
         )
         menuBarController?.install()
@@ -47,12 +52,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         globalShortcutManager?.start()
+
+        if !preferences.hasShownInitialPreferences {
+            showPreferences()
+            preferences.hasShownInitialPreferences = true
+        }
+        updates.reportPendingUpdate()
     }
 
     private func showPreferences() {
         AppLogging.lifecycle.debug("Preferences requested")
         if preferencesWindowController == nil {
-            preferencesWindowController = PreferencesWindowController(preferences: preferences)
+            preferencesWindowController = PreferencesWindowController(preferences: preferences, updates: updates)
         }
 
         preferencesWindowController?.showPreferences()
@@ -60,5 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AppLogging.lifecycle.notice("App terminating run=\(AppLogging.runID, privacy: .public)")
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        // If the user reopened the old app during installation, the helper's
+        // final open activates that process rather than launching another one.
+        updates.reportPendingUpdate()
     }
 }
