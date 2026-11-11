@@ -15,8 +15,13 @@
   Gatekeeper globally.
 - Enable **Screen & System Audio Recording** for ScreenCaptureAll. Accessibility
   is not required. Find the app in the menu bar; capture shortcut: **Cmd-Shift-S**.
-- To update: quit the old app, replace it in Applications, then reopen. Screen
-  Recording approval may need renewing. There is no automatic updater.
+- **First launch:** Preferences opens automatically to help you find the capture
+  shortcut, save folder, and Screen Recording settings. It is shown once per user.
+- **GUI updates:** choose **Check for Updates…** from the menu or Preferences,
+  then **Install and Restart**. The app quits, verifies and installs the selected
+  release, then reopens. Checks and installation are user initiated. The Terminal
+  `--replace` flow and manual replacement remain available. Screen Recording
+  approval may need renewing.
 - SHA-256 checksums cover the DMG, ZIP, and installer script.
 
 See [installation and troubleshooting](https://github.com/or-yam/screen-capture/blob/main/docs/INSTALL.md).

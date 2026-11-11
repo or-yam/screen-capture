@@ -88,6 +88,9 @@ cp "$BINARY_PATH" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 chmod 755 "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 cp "$ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp "$ROOT/Scripts/install.sh" "$ROOT/Scripts/update_app.sh" "$APP_BUNDLE/Contents/Resources/"
+/bin/bash -n "$APP_BUNDLE/Contents/Resources/install.sh"
+/bin/bash -n "$APP_BUNDLE/Contents/Resources/update_app.sh"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

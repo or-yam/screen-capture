@@ -8,7 +8,7 @@ The app is currently a Swift Package menu-bar utility. It implements the native 
 menu or Cmd-Shift-S -> frozen screen overlay -> drag region -> annotate in place -> copy/save -> disappear
 ```
 
-The MVP is region capture only. Window capture, full-screen capture, history, upload, OCR, sandboxing, telemetry, notarization, auto-update, and App Store concerns are out of scope. Public distribution is limited to GitHub Releases; there is no Mac App Store presence.
+The MVP is region capture only. Window capture, full-screen capture, history, upload, OCR, sandboxing, telemetry, notarization, unattended auto-update, and App Store concerns are out of scope. Public distribution is limited to GitHub Releases; there is no Mac App Store presence.
 
 ## Install
 
@@ -28,6 +28,8 @@ Screen locking, annotation overflow, and annotation selection/movement are imple
 
 - Launches as a menu-bar accessory app.
 - Exposes `Capture Region`, `Open Screenshot Folder`, `Preferences`, and `Quit` from the status menu. The Preferences entry point now opens a retained native settings window from the menu-bar accessory app.
+- Opens Preferences automatically on the first launch for each user, then remembers that it has been shown across later launches and updates. Existing users see it once when first running a version with this behavior.
+- Offers **Check for Updates…** in the menu and Preferences. After confirmation, the app quits, runs its bundled installer for the selected release, and reopens. Checks are manual; failed updates preserve or restore the previous app where possible and retain a local error log.
 - Registers a hardcoded global shortcut: `Cmd-Shift-S`.
 - Starts each capture session by taking frozen ScreenCaptureKit snapshots of active displays.
 - Ignores repeated capture triggers while those snapshots are pending; a new capture can start once the overlay is ready or capture has failed.
@@ -80,15 +82,15 @@ For local capture debugging, use the signed debug bundle described below. `swift
 swift test
 ```
 
-The Terminal installer also has a macOS integration suite using temporary signed
-fixtures and offline downloads. It never installs into `/Applications` or launches
-an app:
+The Terminal installer and GUI update helper have a macOS integration suite using
+temporary signed fixtures and offline downloads. It never installs into
+`/Applications` or launches an app:
 
 ```sh
 python3 -m unittest discover -s Tests/Installer -p 'test_*.py' -v
 ```
 
-The Swift Testing suite covers overlapping capture triggers, recovery after capture failure, stable annotation mapping, all resize handles/tools, Move and output clipping/reveal, annotation history, and offscreen AppKit preview/export placement at 1×, 2×, and 5/3× density. It also routes synthetic mouse/keyboard events through the overlay, including screen locking, overflow, Select Annotations, translation/Undo/cancellation, export during annotation movement or resizing, and replacement-selection restrictions. Geometry tests cover painted bounds, arrowheads, rectangle interiors, screen-point hit tolerance, and display clipping in horizontal/vertical layouts. Text tests cover newline-only editing, overflow, draft cancellation, all commit paths, and live-editor/export pixel alignment at uniform and independent X/Y densities. A hidden, never-ordered AppKit window verifies Return, Esc, and focus-loss responder behavior. Tests use synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, visible app windows, or system clipboard writes. They do not replace signed-app QA on real displays.
+The Swift Testing suite covers first-launch preference persistence, release version/asset validation, overlapping capture triggers, recovery after capture failure, stable annotation mapping, all resize handles/tools, Move and output clipping/reveal, annotation history, and offscreen AppKit preview/export placement at 1×, 2×, and 5/3× density. It also routes synthetic mouse/keyboard events through the overlay, including screen locking, overflow, Select Annotations, translation/Undo/cancellation, export during annotation movement or resizing, and replacement-selection restrictions. Geometry tests cover painted bounds, arrowheads, rectangle interiors, screen-point hit tolerance, and display clipping in horizontal/vertical layouts. Text tests cover newline-only editing, overflow, draft cancellation, all commit paths, and live-editor/export pixel alignment at uniform and independent X/Y densities. A hidden, never-ordered AppKit window verifies Return, Esc, and focus-loss responder behavior. Tests use synthetic images and a controlled capture adapter, without live desktop capture, permission prompts, visible app windows, or system clipboard writes. They do not replace signed-app QA on real displays.
 
 Some Swift 6.4 Command Line Tools builds fail to discover the bundled `TestingMacros` plugin when compiling the test module. If `swift test` reports that exact missing-plugin error, explicitly load the selected toolchain's plugin:
 

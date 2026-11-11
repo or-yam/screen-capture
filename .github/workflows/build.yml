@@ -65,7 +65,7 @@ jobs:
       - name: Test packaging validation
         run: .build/dmg-tools/bin/python -m unittest discover -s Tests/Packaging -p 'test_*.py' -v
 
-      - name: Test Terminal installer
+      - name: Test installer and GUI update helper
         run: python3 -m unittest discover -s Tests/Installer -p 'test_*.py' -v
 
       - name: Package universal app, DMG, and ZIP

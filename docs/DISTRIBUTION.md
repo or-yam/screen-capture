@@ -7,7 +7,7 @@ This project started as a personal-use macOS app. Distribution should stay simpl
 - Keep the local developer path easy: clone, build, run.
 - Provide a downloadable GitHub Release asset for personal install and friend testing.
 - Ship a drag-install DMG plus a ZIP, both universal.
-- Avoid Mac App Store, auto-update, telemetry, and third-party installer tooling.
+- Avoid Mac App Store, unattended auto-update, telemetry, and third-party installer tooling.
 - Do not convert to an Xcode project just for packaging unless SwiftPM packaging becomes painful.
 
 ## Roadmap Shift
@@ -20,7 +20,7 @@ The next quality roadmap should evaluate, in order:
 - Launch-at-login, permission onboarding, and settings UX only if they preserve the fast menu-bar utility model.
 - Automated tests and a documented manual QA matrix before broader release.
 
-Do not add telemetry, upload services, App Store distribution, or auto-update by default. Those need explicit product decisions.
+Do not add telemetry, upload services, App Store distribution, or unattended auto-update by default. Those need explicit product decisions. Manual GUI updates are explicitly supported: users check for a release and confirm installation before the app quits, installs, and reopens.
 
 ## Recommended Paths
 
@@ -74,6 +74,16 @@ This is a different trust channel, not Apple notarization; clean-machine launch
 and update QA are still needed. The source repository and releases are public,
 so anonymous curl downloads do not need a GitHub account.
 
+The app also bundles `install.sh` and `update_app.sh` inside its signed Resources.
+The GUI updater checks the public latest-release API on demand and compares
+semantic versions numerically. After the user confirms, private copies of both
+scripts run outside the bundle so replacement cannot remove the active helper.
+The helper waits for normal app exit, invokes the installer with the confirmed
+version and explicit `--replace --yes`, records the result, and reopens the same
+app path. It never stops another app instance; the installer refuses replacement
+while any ScreenCaptureAll instance is running. No background polling or
+unattended installation is performed. See [GUI updates](INSTALL.md#update-from-the-app).
+
 The DMG carries a custom volume icon and a Finder window with a background image,
 the app, and an `Applications` symlink for drag-install. The ZIP and DMG contain
 the same universal (arm64 + x86_64) app. Neither includes `docs/INSTALL.md`.
@@ -102,6 +112,7 @@ The script should:
 - Generate `Contents/Info.plist`.
 - Validate the plist and confirm the binary contains every requested architecture.
 - Copy the executable to `Contents/MacOS/ScreenCaptureAll`.
+- Copy the installer and GUI update helper into `Contents/Resources` before signing.
 - Set executable permissions.
 - Strip extended attributes before signing or zipping.
 - Ad-hoc sign the app for personal use.

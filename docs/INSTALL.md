@@ -11,6 +11,10 @@ signature integrity. It installs to `/Applications/ScreenCaptureAll.app` and ask
 before installing unnotarized software. It does not launch the app automatically.
 No Xcode, Python, jq, or administrator password is required.
 
+On first launch, the app opens Preferences so you can review the capture shortcut,
+save folder, and Screen Recording permission. This happens once per user; existing
+users also see Preferences once when first running a version with this behavior.
+
 **The app is still ad-hoc signed and not notarized.** Curl downloads normally lack
 the browser quarantine marker that triggers the first-launch block. This changes
 the installation/trust path; it does not establish an Apple-verified publisher or
@@ -20,23 +24,20 @@ See [Apple's explanation of download quarantine](https://developer.apple.com/for
 
 ### Public downloads
 
-The repository and release downloads are public. This command needs a release
-containing `install.sh`. Old releases, including v1.0.3, do not contain that asset;
-future releases publish it through CI. Until then, download the source installer
-as described below.
+The repository and release downloads are public. Releases starting with v1.0.4
+include `install.sh`; older releases, including v1.0.3, do not.
 
 ```sh
-installer="$(mktemp -t ScreenCaptureAll-install)"
-curl --fail --show-error --location --proto '=https' --proto-redir '=https' \
-  'https://github.com/or-yam/screen-capture/releases/latest/download/install.sh' \
-  --output "$installer" &&
-  bash "$installer"
-rm -f "$installer"
+(installer="$(curl -qfsSL --proto '=https' --proto-redir '=https' \
+  'https://github.com/or-yam/screen-capture/releases/latest/download/install.sh')" &&
+  /bin/bash -c "$installer" --)
 ```
 
-The script is downloaded to a file, rather than piped into a running shell. To
-inspect it first, download it with the curl command above, run `less "$installer"`,
-and then run `bash "$installer"`. Release copies default to their own exact version;
+The script is fully downloaded into memory and runs only if curl succeeds.
+Terminal input remains available for confirmation, and the variable disappears
+when the subshell exits. To inspect the script first, download it to a file with
+curl's `--output` option, read the file, then execute it with `bash`.
+Release copies default to their own exact version;
 `--version 1.0.3` selects an older release, and `--version latest` explicitly resolves
 the latest stable release once before downloading its assets.
 
@@ -108,6 +109,28 @@ Tokens stay out of curl's process arguments and are not printed.
 - If unexpected quarantine metadata is found, installation stops and leaves it
   intact. Report the failure; do not disable Gatekeeper globally. Managed Macs
   may block installation or launch regardless of the download method.
+
+### Update from the app
+
+In a release containing the GUI updater, choose **Check for Updates…** from the
+menu-bar menu or Preferences. The app checks GitHub only when you ask. If a newer
+stable release is available, **Install and Restart** confirms the replacement and
+the unnotarized-software notice. The app quits, downloads and validates that exact
+release with its bundled installer, replaces itself at the same path, and reopens.
+No Terminal command or administrator password is needed. Any current capture is
+closed when you confirm.
+
+If the update fails, the installer keeps or restores the previous app where
+possible, and the helper reopens it to show the failure. **Show Log** reveals the
+local update log, including a retained backup location if rollback failed. Logs
+are stored under `~/Library/Application Support/ScreenCaptureAll/Updates/`;
+successful runs are cleaned up after the app reopens. If automatic reopening fails,
+open the app yourself from Applications. Screen Recording may require renewed
+approval after an update.
+
+The GUI updater is available in the installed release app in a writable folder.
+It is disabled for diagnostic builds and apps running from a read-only disk image.
+Older builds without this menu item can still use the Terminal update command.
 
 ## Browser download and install
 

@@ -13,12 +13,14 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = ROOT / "Scripts/install.sh"
+UPDATE_HELPER = ROOT / "Scripts/update_app.sh"
 VERSION = "1.2.3"
 ZIP_NAME = f"ScreenCaptureAll-{VERSION}-universal.zip"
 SUM_NAME = f"ScreenCaptureAll-{VERSION}-universal-SHA256SUMS.txt"
@@ -127,6 +129,123 @@ shutil.copyfile(root / name, args[args.index("--output") + 1])
     def assert_original(self):
         self.assertEqual((self.target / "original-marker").read_text(), "keep original on failure")
         self.assertEqual(list(self.destination.glob(".ScreenCaptureAll.install*")), [])
+
+    def gui_update_fixture(self):
+        run_dir = self.root / "GUI update's files"
+        run_dir.mkdir(mode=0o700)
+        shutil.copyfile(INSTALLER, run_dir / "install.sh")
+        shutil.copyfile(UPDATE_HELPER, run_dir / "update_app.sh")
+        self.tool("open", '''#!/bin/bash
+[[ "$#" == 1 && "$1" == "$UPDATE_TARGET" ]] || exit 90
+[[ -f "$UPDATE_RUN/result" ]] || exit 91
+printf '%s\\n' "$1" > "$UPDATE_RUN/reopened"
+''')
+        env = dict(self.env, UPDATE_TARGET=str(self.target), UPDATE_RUN=str(run_dir))
+        return run_dir, env
+
+    def start_gui_update(self, parent_pid):
+        run_dir, env = self.gui_update_fixture()
+        worker = subprocess.Popen(
+            ["/bin/bash", str(run_dir / "update_app.sh"), str(parent_pid),
+             VERSION, str(self.target), str(run_dir)], env=env,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        self.addCleanup(self.stop_test_process, worker)
+        return worker, run_dir
+
+    @staticmethod
+    def stop_test_process(process):
+        if process.poll() is None:
+            process.terminate()
+        process.communicate(timeout=5)
+
+    def exited_parent_pid(self):
+        parent = subprocess.Popen(["/usr/bin/true"])
+        parent.wait(timeout=5)
+        return parent.pid
+
+    def test_gui_update_waits_for_app_exit_then_installs_and_reopens(self):
+        self.existing_app()
+        # A controlled process stands in for the app; no real app is stopped.
+        parent = subprocess.Popen(["/bin/cat"], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL)
+        self.addCleanup(self.stop_test_process, parent)
+        worker, run_dir = self.start_gui_update(parent.pid)
+        deadline = time.monotonic() + 5
+        log = run_dir / "update.log"
+        while time.monotonic() < deadline:
+            if log.exists() and "Waiting for ScreenCaptureAll" in log.read_text():
+                break
+            time.sleep(0.01)
+        else:
+            self.fail("GUI helper did not reach the wait-for-app stage")
+        self.assertFalse((run_dir / "result").exists())
+        self.assert_original()
+        parent.communicate(timeout=5)
+        stdout, stderr = worker.communicate(timeout=30)
+        self.assertEqual(worker.returncode, 0, stdout + stderr + log.read_text())
+        self.assertEqual((run_dir / "result").read_text(), "0\n")
+        self.assertFalse((self.target / "original-marker").exists())
+        self.assertEqual((run_dir / "reopened").read_text().strip(), str(self.target))
+        self.assertNotIn("fixture_token", log.read_text())
+
+    def test_gui_helper_survives_the_launching_app_process(self):
+        self.existing_app()
+        run_dir, env = self.gui_update_fixture()
+        launcher = '''import os, subprocess, sys
+run_dir, version, target = sys.argv[1:]
+subprocess.Popen(
+    ["/bin/bash", run_dir + "/update_app.sh", str(os.getpid()), version, target, run_dir],
+    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+)
+'''
+        parent = subprocess.run(
+            [sys.executable, "-c", launcher, str(run_dir), VERSION, str(self.target)],
+            env=env, capture_output=True, text=True, timeout=5,
+        )
+        self.assertEqual(parent.returncode, 0, parent.stdout + parent.stderr)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            if (run_dir / "reopened").exists():
+                break
+            time.sleep(0.02)
+        else:
+            log = run_dir / "update.log"
+            self.fail(log.read_text() if log.exists() else "Orphaned helper never started")
+        self.assertEqual((run_dir / "result").read_text(), "0\n")
+        self.assertFalse((self.target / "original-marker").exists())
+
+    def test_failed_gui_update_keeps_previous_app_and_reports_failure(self):
+        self.existing_app()
+        (self.downloads / "app.zip").write_bytes(b"corrupt update")
+        worker, run_dir = self.start_gui_update(self.exited_parent_pid())
+        worker.communicate(timeout=30)
+        self.assertNotEqual(worker.returncode, 0)
+        self.assertNotEqual((run_dir / "result").read_text().strip(), "0")
+        self.assertIn("checksum mismatch", (run_dir / "update.log").read_text())
+        self.assertEqual((run_dir / "reopened").read_text().strip(), str(self.target))
+        self.assert_original()
+
+    def test_gui_update_rollback_reopens_restored_app(self):
+        self.existing_app()
+        self.tool("mv", '''#!/bin/bash
+case "$1" in */new.app) exit 1 ;; esac
+exec /bin/mv "$@"
+''')
+        worker, run_dir = self.start_gui_update(self.exited_parent_pid())
+        worker.communicate(timeout=30)
+        self.assertNotEqual(worker.returncode, 0)
+        self.assertIn("Restored the previous app", (run_dir / "update.log").read_text())
+        self.assertEqual((run_dir / "reopened").read_text().strip(), str(self.target))
+        self.assert_original()
+
+    def test_gui_update_refuses_another_running_app_instance(self):
+        self.existing_app()
+        self.env["INSTALL_RUNNING"] = "0"
+        worker, run_dir = self.start_gui_update(self.exited_parent_pid())
+        worker.communicate(timeout=30)
+        self.assertNotEqual(worker.returncode, 0)
+        self.assertIn("is running", (run_dir / "update.log").read_text())
+        self.assert_original()
 
     def test_install_and_verify_only_do_not_launch(self):
         self.tool("open", "#!/bin/bash\nexit 99\n")

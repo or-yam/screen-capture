@@ -238,4 +238,4 @@ check_quarantine "$TARGET"
 COMPLETE=1
 echo "Installed ScreenCaptureAll $VERSION at $TARGET"
 echo "Open it from Applications when ready. The installer has not launched it."
-echo "For updates, quit the app and rerun this installer with --replace."
+echo "For updates, use Check for Updates in the app when available, or quit and rerun this installer with --replace."
