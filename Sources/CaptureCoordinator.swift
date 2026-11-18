@@ -39,6 +39,7 @@ final class CaptureCoordinator {
         }
         // Set before scheduling the task, including back-to-back shortcut events.
         isPreparingCapture = true
+        overlayController.prepareForCapture()
         let captureID = UUID().uuidString
         AppLogging.capture.notice("Capture requested id=\(captureID, privacy: .public)")
         CaptureDiagnostics.log("capture requested", captureID: captureID)
@@ -48,7 +49,6 @@ final class CaptureCoordinator {
             defer { isPreparingCapture = false }
 
             do {
-                overlayController.cancel()
                 let displays = DisplayGeometry.currentDisplays()
                 let snapshots = try await AppLogging.$captureID.withValue(captureID) {
                     try await self.screenshotService.captureDisplaySnapshots(displays: displays)

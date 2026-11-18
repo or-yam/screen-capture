@@ -7,8 +7,35 @@ final class RegionCaptureOverlayController: CaptureOverlay {
 
     private var windows: [RegionCaptureOverlayWindow] = []
     private var selectionState = RegionSelectionState()
+    private let captureFocusRestoration: () -> (() -> Void)?
+    private var restorePreviousApplication: (() -> Void)?
+    private var isPreparedForCapture = false
+
+    init(captureFocusRestoration: (() -> (() -> Void)?)? = nil) {
+        self.captureFocusRestoration = captureFocusRestoration ?? {
+            guard let application = NSWorkspace.shared.frontmostApplication,
+                  application.processIdentifier != NSRunningApplication.current.processIdentifier else {
+                return nil
+            }
+            return {
+                guard NSApp.isActive, !application.isTerminated else { return }
+                NSApp.yieldActivation(to: application)
+                _ = application.activate(from: .current, options: [])
+            }
+        }
+    }
 
     var captureID: String { selectionState.captureID }
+
+    func prepareForCapture() {
+        // Remember before snapshot preparation; replacing an open capture must
+        // neither reactivate the previous app nor replace it with ourselves.
+        if !isPreparedForCapture {
+            restorePreviousApplication = captureFocusRestoration()
+            isPreparedForCapture = true
+        }
+        closeWindows()
+    }
 
     func start(
         captureID: String,
@@ -17,11 +44,12 @@ final class RegionCaptureOverlayController: CaptureOverlay {
         defaultAnnotationStrokeWidth: CGFloat
     ) {
         AppLogging.selection.notice("Starting overlay id=\(captureID, privacy: .public)")
-        cancel()
+        prepareForCapture()
 
         let screens = NSScreen.screens
         guard !screens.isEmpty else {
             AppLogging.selection.error("No screens available id=\(captureID, privacy: .public)")
+            cancel()
             return
         }
 
@@ -47,6 +75,14 @@ final class RegionCaptureOverlayController: CaptureOverlay {
     }
 
     func cancel() {
+        closeWindows()
+        let restore = restorePreviousApplication
+        restorePreviousApplication = nil
+        isPreparedForCapture = false
+        restore?()
+    }
+
+    private func closeWindows() {
         AppLogging.selection.debug("Closing overlay id=\(self.captureID, privacy: .public) windows=\(self.windows.count)")
         CaptureDiagnostics.log("overlay cancel windows=\(windows.count)", captureID: captureID)
         for window in windows {
@@ -82,10 +118,10 @@ final class RegionCaptureOverlayController: CaptureOverlay {
         NSSound.beep()
         let alert = makeAlert(for: error)
         let response = alert.runModal()
+        cancel()
         if isScreenRecordingPermissionDenied(error), response == .alertFirstButtonReturn {
             openScreenRecordingSettings()
         }
-        cancel()
     }
 
     func showSaveError(_ error: Error) {
