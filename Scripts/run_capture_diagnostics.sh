@@ -81,7 +81,7 @@ PLIST
     date -u '+build_utc=%Y-%m-%dT%H:%M:%SZ' > "$BUILD_IDENTITY/build-info.txt"
     swift --version >> "$BUILD_IDENTITY/build-info.txt"
     # Patch output is lossy for binary artwork, so pin the exact icon bytes too.
-    (cd "$ROOT" && shasum -a 256 Resources/*) >> "$BUILD_IDENTITY/build-info.txt"
+    (cd "$ROOT" && shasum -a 256 Resources/*.icns) >> "$BUILD_IDENTITY/build-info.txt"
     codesign --force --sign "$IDENTITY" --timestamp=none "$APP"
 elif [[ ! -x "$APP/Contents/MacOS/ScreenCaptureAll" || ! -f "$BUILD_IDENTITY/build-info.txt" ]]; then
     echo "No diagnostic build with recorded provenance. Run without --no-build first." >&2

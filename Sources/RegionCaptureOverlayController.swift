@@ -14,9 +14,9 @@ final class RegionCaptureOverlayController: CaptureOverlay {
 
     init(
         captureFocusRestoration: (() -> (() -> Void)?)? = nil,
-        isCaptureAppActive: @escaping () -> Bool = { NSApp.isActive }
+        isCaptureAppActive: (() -> Bool)? = nil
     ) {
-        self.isCaptureAppActive = isCaptureAppActive
+        self.isCaptureAppActive = isCaptureAppActive ?? { NSApp.isActive }
         self.captureFocusRestoration = captureFocusRestoration ?? {
             guard let application = NSWorkspace.shared.frontmostApplication,
                   application.processIdentifier != NSRunningApplication.current.processIdentifier else {
