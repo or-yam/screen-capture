@@ -8,19 +8,30 @@ final class RegionCaptureOverlayController: CaptureOverlay {
     private var windows: [RegionCaptureOverlayWindow] = []
     private var selectionState = RegionSelectionState()
     private let captureFocusRestoration: () -> (() -> Void)?
+    private let isCaptureAppActive: () -> Bool
     private var restorePreviousApplication: (() -> Void)?
     private var isPreparedForCapture = false
 
-    init(captureFocusRestoration: (() -> (() -> Void)?)? = nil) {
+    init(
+        captureFocusRestoration: (() -> (() -> Void)?)? = nil,
+        isCaptureAppActive: @escaping () -> Bool = { NSApp.isActive }
+    ) {
+        self.isCaptureAppActive = isCaptureAppActive
         self.captureFocusRestoration = captureFocusRestoration ?? {
             guard let application = NSWorkspace.shared.frontmostApplication,
                   application.processIdentifier != NSRunningApplication.current.processIdentifier else {
+                AppLogging.capture.debug("Focus restoration unavailable: no frontmost external app")
                 return nil
             }
+            AppLogging.capture.debug("Remembered capture focus app=\(application.bundleIdentifier ?? "unknown", privacy: .private)")
             return {
-                guard NSApp.isActive, !application.isTerminated else { return }
+                guard !application.isTerminated else {
+                    AppLogging.capture.debug("Focus restoration skipped: app terminated app=\(application.bundleIdentifier ?? "unknown", privacy: .private)")
+                    return
+                }
                 NSApp.yieldActivation(to: application)
-                _ = application.activate(from: .current, options: [])
+                let accepted = application.activate(from: .current, options: [])
+                AppLogging.capture.notice("Focus restoration requested app=\(application.bundleIdentifier ?? "unknown", privacy: .private) accepted=\(accepted)")
             }
         }
     }
@@ -75,11 +86,18 @@ final class RegionCaptureOverlayController: CaptureOverlay {
     }
 
     func cancel() {
-        closeWindows()
         let restore = restorePreviousApplication
+        // Ordering out an accessory app's last window may change activation.
+        // Check ownership before dismissal so that transition cannot suppress restore.
+        let shouldRestore = restore != nil && isCaptureAppActive()
         restorePreviousApplication = nil
         isPreparedForCapture = false
-        restore?()
+        closeWindows()
+        if shouldRestore {
+            restore?()
+        } else if restore != nil {
+            AppLogging.capture.debug("Focus restoration skipped: capture app was already inactive")
+        }
     }
 
     private func closeWindows() {

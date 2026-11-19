@@ -26,6 +26,7 @@ struct CaptureCoordinatorTests {
 
         // Once the overlay is ready, starting a fresh capture still works.
         coordinator.startRegionCapture()
+        #expect(overlay.prepareCount == 2)
         await capture.waitForRequest()
         await capture.completeRequest()
         #expect(await events.next() == .started)
