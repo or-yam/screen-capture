@@ -7,8 +7,46 @@ final class RegionCaptureOverlayController: CaptureOverlay {
 
     private var windows: [RegionCaptureOverlayWindow] = []
     private var selectionState = RegionSelectionState()
+    private let captureFocusRestoration: () -> (() -> Void)?
+    private let isCaptureAppActive: () -> Bool
+    private var restorePreviousApplication: (() -> Void)?
+    private var isPreparedForCapture = false
+
+    init(
+        captureFocusRestoration: (() -> (() -> Void)?)? = nil,
+        isCaptureAppActive: @escaping () -> Bool = { NSApp.isActive }
+    ) {
+        self.isCaptureAppActive = isCaptureAppActive
+        self.captureFocusRestoration = captureFocusRestoration ?? {
+            guard let application = NSWorkspace.shared.frontmostApplication,
+                  application.processIdentifier != NSRunningApplication.current.processIdentifier else {
+                AppLogging.capture.debug("Focus restoration unavailable: no frontmost external app")
+                return nil
+            }
+            AppLogging.capture.debug("Remembered capture focus app=\(application.bundleIdentifier ?? "unknown", privacy: .private)")
+            return {
+                guard !application.isTerminated else {
+                    AppLogging.capture.debug("Focus restoration skipped: app terminated app=\(application.bundleIdentifier ?? "unknown", privacy: .private)")
+                    return
+                }
+                NSApp.yieldActivation(to: application)
+                let accepted = application.activate(from: .current, options: [])
+                AppLogging.capture.notice("Focus restoration requested app=\(application.bundleIdentifier ?? "unknown", privacy: .private) accepted=\(accepted)")
+            }
+        }
+    }
 
     var captureID: String { selectionState.captureID }
+
+    func prepareForCapture() {
+        // Remember before snapshot preparation; replacing an open capture must
+        // neither reactivate the previous app nor replace it with ourselves.
+        if !isPreparedForCapture {
+            restorePreviousApplication = captureFocusRestoration()
+            isPreparedForCapture = true
+        }
+        closeWindows()
+    }
 
     func start(
         captureID: String,
@@ -17,11 +55,12 @@ final class RegionCaptureOverlayController: CaptureOverlay {
         defaultAnnotationStrokeWidth: CGFloat
     ) {
         AppLogging.selection.notice("Starting overlay id=\(captureID, privacy: .public)")
-        cancel()
+        prepareForCapture()
 
         let screens = NSScreen.screens
         guard !screens.isEmpty else {
             AppLogging.selection.error("No screens available id=\(captureID, privacy: .public)")
+            cancel()
             return
         }
 
@@ -47,6 +86,21 @@ final class RegionCaptureOverlayController: CaptureOverlay {
     }
 
     func cancel() {
+        let restore = restorePreviousApplication
+        // Ordering out an accessory app's last window may change activation.
+        // Check ownership before dismissal so that transition cannot suppress restore.
+        let shouldRestore = restore != nil && isCaptureAppActive()
+        restorePreviousApplication = nil
+        isPreparedForCapture = false
+        closeWindows()
+        if shouldRestore {
+            restore?()
+        } else if restore != nil {
+            AppLogging.capture.debug("Focus restoration skipped: capture app was already inactive")
+        }
+    }
+
+    private func closeWindows() {
         AppLogging.selection.debug("Closing overlay id=\(self.captureID, privacy: .public) windows=\(self.windows.count)")
         CaptureDiagnostics.log("overlay cancel windows=\(windows.count)", captureID: captureID)
         for window in windows {
@@ -82,10 +136,10 @@ final class RegionCaptureOverlayController: CaptureOverlay {
         NSSound.beep()
         let alert = makeAlert(for: error)
         let response = alert.runModal()
+        cancel()
         if isScreenRecordingPermissionDenied(error), response == .alertFirstButtonReturn {
             openScreenRecordingSettings()
         }
-        cancel()
     }
 
     func showSaveError(_ error: Error) {

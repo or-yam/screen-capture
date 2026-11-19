@@ -6,6 +6,8 @@ protocol CaptureOverlay: AnyObject {
     var onSave: ((Data) -> Void)? { get set }
     var captureID: String { get }
 
+    /// Dismiss an existing overlay while retaining the app to reactivate on close.
+    func prepareForCapture()
     func start(
         captureID: String,
         snapshots: [DisplaySnapshot],

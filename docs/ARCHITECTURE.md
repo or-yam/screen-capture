@@ -36,7 +36,7 @@ Avoid account systems, upload flows, history managers, public distribution mecha
 - `CaptureCoordinator`: starts sessions, captures frozen display snapshots, wires overlay output to copy/save, and owns close-on-success behavior.
 - `SaveConfirmationToastController`: shows the app-owned transient save confirmation with filename and Finder reveal action.
 - `ScreenCaptureKitScreenshotService`: captures full-display snapshots and validates ScreenCaptureKit region capture.
-- `RegionCaptureOverlayController`: owns AppKit overlay windows, frozen snapshot rendering, selection, annotation toolbar, keyboard handling, permission/save errors, and image export preparation.
+- `RegionCaptureOverlayController`: owns AppKit overlay windows, frozen snapshot rendering, selection, annotation toolbar, keyboard handling, permission/save errors, and image export preparation. Remembers the frontmost external app before snapshot preparation and requests focus restoration after copy, save, cancellation, or a terminal capture error. Replacement captures retain that app; save errors keep the overlay active for retry.
 - `RegionSelectionState`: stores live selection bounds, the committed frozen-snapshot crop/frame, vector annotations, drafts, and annotation-only undo.
 - `AnnotationCanvas`: maps immutable session-wide, top-left screen-point coordinates into screen/selection-image frames. `Renderer` shares that mapping between preview and export.
 - `AnnotationGeometry`: shared painted bounds, hit testing, translation constraints, and arrowhead geometry for annotation rendering and selection/movement.

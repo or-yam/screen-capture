@@ -12,11 +12,13 @@ struct CaptureCoordinatorTests {
         var events = overlay.events.makeAsyncIterator()
 
         coordinator.startRegionCapture()
+        #expect(overlay.prepareCount == 1)
         coordinator.startRegionCapture()
         await capture.waitForRequest()
         coordinator.startRegionCapture()
 
-        #expect(overlay.cancelCount == 1)
+        #expect(overlay.prepareCount == 1)
+        #expect(overlay.cancelCount == 0)
         await capture.completeRequest()
         #expect(await events.next() == .started)
         #expect(await capture.requestCount == 1)
@@ -24,12 +26,14 @@ struct CaptureCoordinatorTests {
 
         // Once the overlay is ready, starting a fresh capture still works.
         coordinator.startRegionCapture()
+        #expect(overlay.prepareCount == 2)
         await capture.waitForRequest()
         await capture.completeRequest()
         #expect(await events.next() == .started)
         #expect(await capture.requestCount == 2)
         #expect(overlay.startCount == 2)
-        #expect(overlay.cancelCount == 2)
+        #expect(overlay.prepareCount == 2)
+        #expect(overlay.cancelCount == 0)
     }
 
     @Test(.timeLimit(.minutes(1)))
@@ -114,6 +118,7 @@ private final class RecordingCaptureOverlay: CaptureOverlay {
     var onCopy: ((Data) -> Void)?
     var onSave: ((Data) -> Void)?
     var captureID = "none"
+    var prepareCount = 0
     var cancelCount = 0
     var startCount = 0
     let events: AsyncStream<Event>
@@ -134,6 +139,7 @@ private final class RecordingCaptureOverlay: CaptureOverlay {
         continuation.yield(.started)
     }
 
+    func prepareForCapture() { prepareCount += 1 }
     func cancel() { cancelCount += 1 }
     func showCaptureError(_ error: Error) { continuation.yield(.failed) }
     func showSaveError(_ error: Error) { continuation.yield(.failed) }
