@@ -5,11 +5,32 @@ and Intel Macs that can run macOS 26. This is a menu-bar app, not a Dock app.
 
 ## Install with Terminal
 
-Paste this one command into Terminal:
+Choose one of these methods. Both use the same installer and app verification.
+
+### Download first recommended
+
+This downloads the complete script and runs it only if curl succeeds:
 
 ```sh
 (installer="$(curl -qfsSL --proto '=https' --proto-redir '=https' 'https://github.com/or-yam/screen-capture/releases/latest/download/install.sh')" && /bin/bash -c "$installer" --)
 ```
+
+### Shorter pipe command
+
+This starts executing the script while it downloads. Use it if you prefer the
+shorter command; interrupted downloads can leave earlier instructions executed.
+Neither method protects against a malicious installer or a compromised publisher.
+
+```sh
+curl -qfsSL --proto '=https' --proto-redir '=https' https://github.com/or-yam/screen-capture/releases/latest/download/install.sh | /bin/bash
+```
+
+The pipe command requires a release containing the piped-prompt support from this
+PR. The currently published v1.0.5 installer requires the download-first form.
+Before publication, test the pipe command with a commit-pinned candidate script;
+do not treat the old release as validation of this feature.
+
+### Finish installation
 
 1. Confirm installation when asked.
 2. Choose whether to open ScreenCaptureAll now. You can also open it later from Applications.
@@ -17,9 +38,11 @@ Paste this one command into Terminal:
    Click **Open System Settings** and enable the app. If it is missing, click **+**
    and select the installed app. Reopen only if macOS asks, then press **Cmd–Shift–S**.
 
-No DMG, dragging, or manual extraction is needed. The command downloads the complete
-script before running it and keeps Terminal input available for confirmation.
-It requires Bash; do not change it to `curl … | sh`.
+No DMG, dragging, or manual extraction is needed. The download-first form keeps
+Terminal input available for confirmation; the pipe form reads answers from your
+Terminal separately from the script. Without an interactive Terminal, installation
+requires explicit `--yes`, which never launches the app. Both forms require Bash;
+do not change them to `curl … | sh`.
 
 The Terminal installer downloads the universal ZIP using curl, checks the release's
 SHA-256 checksum, then validates the app's identity, version, architecture, and code
@@ -45,12 +68,19 @@ See [Apple's explanation of download quarantine](https://developer.apple.com/for
 The repository and release downloads are public. Releases starting with v1.0.4
 include `install.sh`; older releases, including v1.0.3, do not.
 
-The command above runs only if curl succeeds, and its variable disappears
+The download-first command runs only if curl succeeds, and its variable disappears
 when the subshell exits. To inspect the script first, download it to a file with
 curl's `--output` option, read the file, then execute it with `bash`.
 Release copies default to their own exact version;
 `--version 1.0.3` selects an older release, and `--version latest` explicitly resolves
 the latest stable release once before downloading its assets.
+
+Pass options after the final `--` in the download-first form. For the pipe form,
+use `/bin/bash -s --` followed by installer options, for example:
+
+```sh
+curl -qfsSL --proto '=https' --proto-redir '=https' https://github.com/or-yam/screen-capture/releases/latest/download/install.sh | /bin/bash -s -- --verify-only
+```
 
 For an older release without an installer asset, download the source installer
 from `main` after the installer changes are merged. Before merge, use the

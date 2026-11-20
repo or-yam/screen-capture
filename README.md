@@ -12,11 +12,24 @@ The MVP is region capture only. Window capture, full-screen capture, history, up
 
 ## Install
 
-Paste this command into Terminal to download, verify, and install the latest release:
+Choose either Terminal installation method. Both verify and install the same release.
+
+**Download first (recommended):** runs the installer only after the complete script
+has downloaded successfully.
 
 ```sh
 (installer="$(curl -qfsSL --proto '=https' --proto-redir '=https' 'https://github.com/or-yam/screen-capture/releases/latest/download/install.sh')" && /bin/bash -c "$installer" --)
 ```
+
+**Shorter pipe command:** starts running the installer while it downloads.
+
+```sh
+curl -qfsSL --proto '=https' --proto-redir '=https' https://github.com/or-yam/screen-capture/releases/latest/download/install.sh | /bin/bash
+```
+
+The pipe command requires the next release containing this change; the currently
+published v1.0.5 installer supports the download-first command. Both methods require
+trust in this project. Bash is required; do not replace it with `sh`.
 
 Confirm installation, then choose whether to open the app. On first launch,
 Preferences guides you through Screen Recording approval. No DMG or manual

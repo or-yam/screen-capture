@@ -4,10 +4,12 @@ Only network downloads and the running-process probe are replaced. Extraction,
 plist parsing, checksums, signature checks, staging, and rollback use macOS tools.
 Nothing is launched or written to the real Applications directory.
 """
+import errno
 import hashlib
 import json
 import os
 import plistlib
+import select
 import shutil
 import stat
 import subprocess
@@ -131,7 +133,9 @@ shutil.copyfile(root / name, args[args.index("--output") + 1])
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(message, result.stdout + result.stderr)
 
-    def run_interactive_installer(self, responses, *options):
+    def run_interactive_installer(self, responses, *options, piped=False):
+        if piped:
+            return self.run_piped_installer(responses, *options)
         args = ["/bin/bash", str(INSTALLER), "--version", VERSION,
                 "--install-dir", str(self.destination), *options]
         terminal, input_fd = os.openpty()
@@ -155,6 +159,66 @@ shutil.copyfile(root / name, args[args.index("--output") + 1])
             os.close(terminal)
             if input_fd is not None:
                 os.close(input_fd)
+
+    def run_piped_installer(self, responses, *options):
+        # Model cat install.sh | bash with a separate controlling Terminal.
+        # Drain its output while running so macOS can close the PTY on exit.
+        launcher = '''import fcntl, os, sys, termios
+fd = int(sys.argv[1])
+os.setsid()
+fcntl.ioctl(fd, termios.TIOCSCTTY, 0)
+os.close(fd)
+os.execv("/bin/bash", ["/bin/bash", "-s", "--", *sys.argv[2:]])
+'''
+        terminal, terminal_fd = os.openpty()
+        producer = subprocess.Popen(["/bin/cat", str(INSTALLER)], stdout=subprocess.PIPE)
+        process = None
+        output = bytearray()
+        try:
+            args = [sys.executable, "-c", launcher, str(terminal_fd),
+                    "--version", VERSION, "--install-dir", str(self.destination), *options]
+            process = subprocess.Popen(args, env=self.env, stdin=producer.stdout,
+                                       stdout=terminal_fd, stderr=terminal_fd,
+                                       pass_fds=(terminal_fd,))
+            producer.stdout.close()
+            os.close(terminal_fd)
+            terminal_fd = None
+            deadline = time.monotonic() + 30
+            responded = False
+            while True:
+                if time.monotonic() > deadline:
+                    self.fail("Piped installer timed out: " + output.decode(errors="replace"))
+                readable, _, _ = select.select([terminal], [], [], 0.1)
+                if readable:
+                    try:
+                        chunk = os.read(terminal, 65536)
+                    except OSError as error:
+                        if error.errno != errno.EIO:  # PTY slave closed.
+                            raise
+                        break
+                    if not chunk:
+                        break
+                    output.extend(chunk)
+                    if not responded and b"Install this unnotarized app? [y/N]" in output:
+                        if responses:
+                            os.write(terminal, responses)
+                        responded = True
+                elif process.poll() is not None:
+                    break
+            result = process.wait(timeout=5)
+            producer.wait(timeout=5)
+            text = output.decode(errors="replace")
+            self.assertNotIn("fixture_token", text)
+            return subprocess.CompletedProcess(args, result, text, "")
+        finally:
+            os.close(terminal)
+            if terminal_fd is not None:
+                os.close(terminal_fd)
+            for child in (process, producer):
+                if child is not None:
+                    if child.poll() is None:
+                        child.kill()
+                    child.wait(timeout=5)
 
     def assert_original(self):
         self.assertEqual((self.target / "original-marker").read_text(), "keep original on failure")
@@ -342,6 +406,60 @@ printf '%s\\n' "$@" >> "$INSTALL_OPEN_LOG"
         result = self.run_interactive_installer(b"n\n")
         self.assert_failed(result, "Installation canceled")
         self.assertFalse(self.destination.exists())
+        self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_piped_installer_reads_both_confirmations_from_terminal(self):
+        result = self.run_interactive_installer(b"y\ny\n", piped=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((self.root / "opened-apps").read_text(), f"{self.target}\n")
+        self.assertEqual(list(self.destination.glob(".ScreenCaptureAll.install*")), [])
+
+    def test_piped_install_decline_does_not_consume_script_as_consent(self):
+        for responses in (b"n\n", b"\x04"):
+            with self.subTest(responses=responses):
+                result = self.run_interactive_installer(responses, piped=True)
+                self.assert_failed(result, "Installation canceled")
+                self.assertFalse(self.destination.exists())
+                self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_piped_installer_keeps_install_when_open_declined_or_eof(self):
+        for responses in (b"y\nn\n", b"y\n\x04"):
+            with self.subTest(responses=responses):
+                result = self.run_interactive_installer(responses, "--replace", piped=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue(self.target.is_dir())
+                self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_piped_yes_does_not_prompt_or_launch_even_with_terminal(self):
+        result = self.run_interactive_installer(b"", "--yes", piped=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("[y/N]", result.stdout + result.stderr)
+        self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_piped_verify_only_does_not_prompt_or_install(self):
+        result = self.run_interactive_installer(b"", "--verify-only", piped=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(self.destination.exists())
+        self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_piped_script_without_terminal_requires_explicit_yes(self):
+        args = ["/bin/bash", "-s", "--", "--version", VERSION,
+                "--install-dir", str(self.destination)]
+        result = subprocess.run(args + ["--verify-only"], env=self.env,
+                                input=INSTALLER.read_text(), text=True,
+                                capture_output=True, timeout=30, start_new_session=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(self.destination.exists())
+        result = subprocess.run(args, env=self.env, input=INSTALLER.read_text(),
+                                text=True, capture_output=True, timeout=30,
+                                start_new_session=True)
+        self.assert_failed(result, "Interactive confirmation required")
+        self.assertFalse(self.destination.exists())
+        result = subprocess.run(args + ["--yes"], env=self.env,
+                                input=INSTALLER.read_text(), text=True,
+                                capture_output=True, timeout=30, start_new_session=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.target.is_dir())
         self.assertFalse((self.root / "opened-apps").exists())
 
     def test_yes_does_not_allow_implicit_replacement(self):

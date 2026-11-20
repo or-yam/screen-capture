@@ -211,8 +211,14 @@ Checksums and signature integrity do not establish an Apple-verified publisher.
 Continue only if you trust this project. No security settings will be changed.
 NOTICE
 if [[ "$ASSUME_YES" != 1 ]]; then
-  [[ -t 0 ]] || fail "Interactive confirmation required (or explicitly use --yes)"
-  read -r -p "Install this unnotarized app? [y/N] " answer || fail "Installation canceled"
+  # A piped script owns stdin. Read answers from the controlling Terminal instead,
+  # never from script bytes or redirected input. --yes never opens this descriptor.
+  if [[ -t 0 ]]; then
+    exec 9<&0
+  elif ! { exec 9</dev/tty; } 2>/dev/null || [[ ! -t 9 ]]; then
+    fail "Interactive confirmation required (or explicitly use --yes)"
+  fi
+  read -r -u 9 -p "Install this unnotarized app? [y/N] " answer || fail "Installation canceled"
   [[ "$answer" == y || "$answer" == Y || "$answer" == yes ]] || fail "Installation canceled"
 fi
 mkdir -p "$INSTALL_DIR" || fail "Cannot create destination folder"
@@ -245,9 +251,10 @@ LOCK_DIR=""
 rm -rf "$WORK_DIR"
 WORK_DIR=""
 echo "Installed ScreenCaptureAll $VERSION at $TARGET"
-if [[ "$ASSUME_YES" != 1 && -t 0 ]]; then
+if [[ "$ASSUME_YES" != 1 ]]; then
   answer=""
-  read -r -p "Open ScreenCaptureAll now? [y/N] " answer || answer=""
+  read -r -u 9 -p "Open ScreenCaptureAll now? [y/N] " answer || answer=""
+  exec 9<&-
   if [[ "$answer" == y || "$answer" == Y || "$answer" == yes ]]; then
     if open "$TARGET"; then
       echo "ScreenCaptureAll is opening. Follow the Screen Recording instructions in Preferences."
