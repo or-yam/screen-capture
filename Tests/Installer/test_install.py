@@ -67,10 +67,15 @@ class InstallerTests(unittest.TestCase):
         shutil.copytree(self.fixture, self.source)
         self.env = dict(os.environ, PATH=f"{self.bin}:/usr/bin:/bin:/usr/sbin:/sbin",
                         GH_TOKEN="fixture_token", GITHUB_TOKEN="",
-                        INSTALL_FIXTURES=str(self.downloads), TMPDIR=str(self.root))
+                        INSTALL_FIXTURES=str(self.downloads), TMPDIR=str(self.root),
+                        INSTALL_OPEN_LOG=str(self.root / "opened-apps"))
         # Do not ask gh for the host's actual credentials during offline tests.
         self.tool("gh", "#!/bin/bash\nexit 1\n")
         self.tool("pgrep", '#!/bin/bash\nexit "${INSTALL_RUNNING:-1}"\n')
+        self.tool("open", '''#!/bin/bash
+printf '%s\\n' "$@" >> "$INSTALL_OPEN_LOG"
+exit "${INSTALL_OPEN_RESULT:-0}"
+''')
         self.tool("curl", f"#!{sys.executable}\n" + '''
 import os, shutil, sys
 from pathlib import Path
@@ -125,6 +130,31 @@ shutil.copyfile(root / name, args[args.index("--output") + 1])
     def assert_failed(self, result, message):
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn(message, result.stdout + result.stderr)
+
+    def run_interactive_installer(self, responses, *options):
+        args = ["/bin/bash", str(INSTALLER), "--version", VERSION,
+                "--install-dir", str(self.destination), *options]
+        terminal, input_fd = os.openpty()
+        try:
+            with subprocess.Popen(args, env=self.env, stdin=input_fd,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True) as process:
+                os.close(input_fd)
+                input_fd = None
+                if responses:
+                    os.write(terminal, responses)
+                try:
+                    stdout, stderr = process.communicate(timeout=30)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.communicate()
+                    raise
+                self.assertNotIn("fixture_token", stdout + stderr)
+                return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        finally:
+            os.close(terminal)
+            if input_fd is not None:
+                os.close(input_fd)
 
     def assert_original(self):
         self.assertEqual((self.target / "original-marker").read_text(), "keep original on failure")
@@ -248,7 +278,6 @@ exec /bin/mv "$@"
         self.assert_original()
 
     def test_install_and_verify_only_do_not_launch(self):
-        self.tool("open", "#!/bin/bash\nexit 99\n")
         result = self.run_installer("--verify-only")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertFalse(self.destination.exists())
@@ -257,6 +286,63 @@ exec /bin/mv "$@"
         self.assertTrue((self.target / "Contents/MacOS/ScreenCaptureAll").is_file())
         subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(self.target)], check=True)
         self.assertEqual(list(self.destination.glob(".ScreenCaptureAll.install*")), [])
+        self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_interactive_install_opens_app_only_after_accepting(self):
+        self.tool("open", '''#!/bin/bash
+[[ ! -e "${1%/*}/.ScreenCaptureAll.install.lock" ]] || exit 90
+shopt -s nullglob
+staging=("${1%/*}"/.ScreenCaptureAll.install.*)
+[[ "${#staging[@]}" == 0 ]] || exit 91
+printf '%s\\n' "$@" >> "$INSTALL_OPEN_LOG"
+''')
+        result = self.run_interactive_installer(b"y\ny\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ScreenCaptureAll is opening", result.stdout)
+        self.assertEqual((self.root / "opened-apps").read_text(), f"{self.target}\n")
+        self.assertTrue(self.target.is_dir())
+        self.assertEqual(list(self.destination.glob(".ScreenCaptureAll.install*")), [])
+
+    def test_declining_to_open_keeps_the_successful_install(self):
+        result = self.run_interactive_installer(b"y\nn\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.target.is_dir())
+        self.assertIn(f"Open {self.target} from Finder", result.stdout)
+        self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_eof_at_open_prompt_keeps_the_successful_install(self):
+        result = self.run_interactive_installer(b"y\n\x04")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.target.is_dir())
+        self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_open_failure_does_not_roll_back_successful_replacement(self):
+        self.existing_app()
+        self.env["INSTALL_OPEN_RESULT"] = "1"
+        result = self.run_interactive_installer(b"y\ny\n", "--replace")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Installed successfully, but the app could not be opened", result.stderr)
+        self.assertFalse((self.target / "original-marker").exists())
+        subprocess.run(["/usr/bin/codesign", "--verify", "--strict", str(self.target)], check=True)
+        self.assertEqual(list(self.destination.glob(".ScreenCaptureAll.install*")), [])
+
+    def test_yes_in_a_terminal_does_not_offer_or_open_app(self):
+        result = self.run_interactive_installer(b"", "--yes")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("Open ScreenCaptureAll now?", result.stdout + result.stderr)
+        self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_interactive_verify_only_does_not_prompt_or_open_app(self):
+        result = self.run_interactive_installer(b"", "--verify-only")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(self.destination.exists())
+        self.assertFalse((self.root / "opened-apps").exists())
+
+    def test_declining_installation_changes_nothing(self):
+        result = self.run_interactive_installer(b"n\n")
+        self.assert_failed(result, "Installation canceled")
+        self.assertFalse(self.destination.exists())
+        self.assertFalse((self.root / "opened-apps").exists())
 
     def test_yes_does_not_allow_implicit_replacement(self):
         self.existing_app()

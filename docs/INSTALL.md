@@ -5,10 +5,28 @@ and Intel Macs that can run macOS 26. This is a menu-bar app, not a Dock app.
 
 ## Install with Terminal
 
+Paste this one command into Terminal:
+
+```sh
+(installer="$(curl -qfsSL --proto '=https' --proto-redir '=https' 'https://github.com/or-yam/screen-capture/releases/latest/download/install.sh')" && /bin/bash -c "$installer" --)
+```
+
+1. Confirm installation when asked.
+2. Choose whether to open ScreenCaptureAll now. You can also open it later from Applications.
+3. In the app's first-launch Preferences, follow the Screen Recording instructions.
+   Click **Open System Settings** and enable the app. If it is missing, click **+**
+   and select the installed app. Reopen only if macOS asks, then press **Cmd–Shift–S**.
+
+No DMG, dragging, or manual extraction is needed. The command downloads the complete
+script before running it and keeps Terminal input available for confirmation.
+It requires Bash; do not change it to `curl … | sh`.
+
 The Terminal installer downloads the universal ZIP using curl, checks the release's
 SHA-256 checksum, then validates the app's identity, version, architecture, and code
 signature integrity. It installs to `/Applications/ScreenCaptureAll.app` and asks
-before installing unnotarized software. It does not launch the app automatically.
+before installing unnotarized software. Interactive installs offer to open the app;
+it opens only when you accept. Declining or pressing Control-D keeps the app installed.
+If opening fails, installation still succeeds and the installer shows where to open it.
 No Xcode, Python, jq, or administrator password is required.
 
 On first launch, the app opens Preferences so you can review the capture shortcut,
@@ -27,14 +45,7 @@ See [Apple's explanation of download quarantine](https://developer.apple.com/for
 The repository and release downloads are public. Releases starting with v1.0.4
 include `install.sh`; older releases, including v1.0.3, do not.
 
-```sh
-(installer="$(curl -qfsSL --proto '=https' --proto-redir '=https' \
-  'https://github.com/or-yam/screen-capture/releases/latest/download/install.sh')" &&
-  /bin/bash -c "$installer" --)
-```
-
-The script is fully downloaded into memory and runs only if curl succeeds.
-Terminal input remains available for confirmation, and the variable disappears
+The command above runs only if curl succeeds, and its variable disappears
 when the subshell exits. To inspect the script first, download it to a file with
 curl's `--output` option, read the file, then execute it with `bash`.
 Release copies default to their own exact version;
@@ -100,12 +111,14 @@ Tokens stay out of curl's process arguments and are not printed.
 - Quit ScreenCaptureAll before updates. Download a fresh installer and add
   `--replace` to the `bash` invocation. Reusing a saved installer requires
   `--version latest --replace` to update beyond that installer's pinned release.
-- `--yes` skips the trust prompt; it does **not** authorize replacement without
-  `--replace`. Existing apps with a different bundle ID or symlink destinations
+- `--yes` skips the trust prompt and never opens the app or offers to open it,
+  even in a Terminal. It does **not** authorize replacement without `--replace`.
+  Existing apps with a different bundle ID or symlink destinations
   are refused. A failed replacement restores the previous app where possible;
   if restoration fails, the error names the retained backup directory.
-- Open the app from Applications after installation. Screen Recording approval
-  is still required, and an ad-hoc update can require renewed approval.
+- Accept the installer's offer to open the app, or open it from Applications later.
+  Screen Recording approval is still required, and an ad-hoc update can require
+  renewed approval.
 - If unexpected quarantine metadata is found, installation stops and leaves it
   intact. Report the failure; do not disable Gatekeeper globally. Managed Macs
   may block installation or launch regardless of the download method.

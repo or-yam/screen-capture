@@ -12,10 +12,19 @@ The MVP is region capture only. Window capture, full-screen capture, history, up
 
 ## Install
 
-Use the [Terminal installer](docs/INSTALL.md#install-with-terminal) to download and
-verify a release ZIP, then install it without changing macOS security settings.
+Paste this command into Terminal to download, verify, and install the latest release:
+
+```sh
+(installer="$(curl -qfsSL --proto '=https' --proto-redir '=https' 'https://github.com/or-yam/screen-capture/releases/latest/download/install.sh')" && /bin/bash -c "$installer" --)
+```
+
+Confirm installation, then choose whether to open the app. On first launch,
+Preferences guides you through Screen Recording approval. No DMG or manual
+extraction is needed. See [installation instructions](docs/INSTALL.md#install-with-terminal)
+for details, replacement options, and manual downloads.
+
 The app remains unnotarized. The repository and release downloads are public;
-installation does not require a GitHub account.
+installation does not require a GitHub account or change macOS security settings.
 DMG and ZIP browser downloads remain available with the documented Gatekeeper override.
 
 ## Capture Display Rule

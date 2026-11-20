@@ -28,7 +28,7 @@ Usage: bash install.sh [options]
   --version VERSION     Install a specific version, e.g. 1.0.3 (or latest).
   --install-dir PATH    Destination folder (default: /Applications).
   --replace             Explicitly allow replacing an existing ScreenCaptureAll.
-  --yes                 Accept the unnotarized-software notice without a prompt.
+  --yes                 Accept the software notice; install without opening the app.
   --verify-only         Download and verify; do not install or launch anything.
   --help                Show this help.
 
@@ -146,6 +146,7 @@ download "https://api.github.com/repos/$REPOSITORY/releases/assets/$ZIP_ID" "$WO
 ACTUAL_HASH=$(shasum -a 256 "$WORK_DIR/app.zip" | awk '{print $1}')
 [[ "$ACTUAL_HASH" == "$EXPECTED_HASH" ]] || fail "ZIP checksum mismatch; nothing installed"
 echo "SHA-256 verified: $ACTUAL_HASH"
+echo "Checking the downloaded app."
 
 # This app currently ships no symlinks. Refuse traversal/links before extracting,
 # rather than letting an unexpected archive write outside the staging directory.
@@ -211,7 +212,7 @@ Continue only if you trust this project. No security settings will be changed.
 NOTICE
 if [[ "$ASSUME_YES" != 1 ]]; then
   [[ -t 0 ]] || fail "Interactive confirmation required (or explicitly use --yes)"
-  read -r -p "Install this unnotarized app? [y/N] " answer
+  read -r -p "Install this unnotarized app? [y/N] " answer || fail "Installation canceled"
   [[ "$answer" == y || "$answer" == Y || "$answer" == yes ]] || fail "Installation canceled"
 fi
 mkdir -p "$INSTALL_DIR" || fail "Cannot create destination folder"
@@ -223,6 +224,7 @@ if mkdir "$INSTALL_DIR/.ScreenCaptureAll.install.lock" 2>/dev/null; then
 else
   fail "Another installation is running, or a stale .ScreenCaptureAll.install.lock remains in $INSTALL_DIR"
 fi
+echo "Installing ScreenCaptureAll to $TARGET."
 INSTALL_STAGE=$(mktemp -d "$INSTALL_DIR/.ScreenCaptureAll.install.XXXXXX")
 ditto "$APP" "$INSTALL_STAGE/new.app" || fail "Cannot stage the app; previous copy untouched"
 codesign --verify --deep --strict "$INSTALL_STAGE/new.app" || fail "Staged app signature is invalid"
@@ -236,6 +238,26 @@ NEW_INSTALLED=1
 codesign --verify --deep --strict "$TARGET" || fail "Installed app signature is invalid"
 check_quarantine "$TARGET"
 COMPLETE=1
+rm -rf "$INSTALL_STAGE"
+INSTALL_STAGE=""
+rmdir "$LOCK_DIR"
+LOCK_DIR=""
+rm -rf "$WORK_DIR"
+WORK_DIR=""
 echo "Installed ScreenCaptureAll $VERSION at $TARGET"
-echo "Open it from Applications when ready. The installer has not launched it."
+if [[ "$ASSUME_YES" != 1 && -t 0 ]]; then
+  answer=""
+  read -r -p "Open ScreenCaptureAll now? [y/N] " answer || answer=""
+  if [[ "$answer" == y || "$answer" == Y || "$answer" == yes ]]; then
+    if open "$TARGET"; then
+      echo "ScreenCaptureAll is opening. Follow the Screen Recording instructions in Preferences."
+    else
+      echo "Installed successfully, but the app could not be opened. Open $TARGET from Finder." >&2
+    fi
+  else
+    echo "Open $TARGET from Finder when ready."
+  fi
+else
+  echo "Open $TARGET from Finder when ready. The installer has not launched it."
+fi
 echo "For updates, use Check for Updates in the app when available, or quit and rerun this installer with --replace."

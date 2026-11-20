@@ -21,6 +21,33 @@ struct PreferencesView: View {
 
     var body: some View {
         Form {
+            Section("Screen Recording") {
+                LabeledContent("Permission") {
+                    HStack(spacing: 8) {
+                        Label(
+                            screenRecordingStatus.isAllowed ? "Allowed" : "Not allowed",
+                            systemImage: screenRecordingStatus.isAllowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                        )
+                        .foregroundStyle(screenRecordingStatusStyle)
+
+                        Button("Open System Settings", action: openScreenRecordingSettings)
+                    }
+                }
+
+                if !screenRecordingStatus.isAllowed {
+                    Text("Allow Screen Recording to take screenshots. In System Settings, enable this app under Screen & System Audio Recording.")
+                        .font(.callout)
+                    Text("If the app is missing, click + and select this app in Finder:")
+                        .font(.callout)
+                    Text(Bundle.main.bundleURL.path)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    Text("Reopen the app only if macOS asks you to. Then press Command–Shift–S to take a screenshot.")
+                        .font(.callout)
+                }
+            }
+
             Section("App") {
                 LabeledContent("Version", value: updates.currentVersion)
                 LabeledContent("Updates") {
@@ -103,27 +130,6 @@ struct PreferencesView: View {
 
                 LabeledContent("Menu bar icon") {
                     Toggle("Show app icon in menu bar", isOn: $preferences.showsMenuBarIcon)
-                }
-
-                LabeledContent("Screen Recording") {
-                    HStack(spacing: 8) {
-                        Label(
-                            screenRecordingStatus.isAllowed ? "Allowed" : "Not allowed",
-                            systemImage: screenRecordingStatus.isAllowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-                        )
-                        .foregroundStyle(screenRecordingStatusStyle)
-
-                        Button("Open System Settings", action: openScreenRecordingSettings)
-                    }
-                }
-
-                if !screenRecordingStatus.isAllowed {
-                    Label(
-                        "Captures fail until Screen Recording is allowed.",
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
-                    .foregroundStyle(.orange)
-                    .font(.callout)
                 }
             }
         }
