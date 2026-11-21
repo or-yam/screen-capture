@@ -34,9 +34,10 @@ do not treat the old release as validation of this feature.
 
 1. Confirm installation when asked.
 2. Choose whether to open ScreenCaptureAll now. You can also open it later from Applications.
-3. In the app's first-launch Preferences, follow the Screen Recording instructions.
-   Click **Open System Settings** and enable the app. If it is missing, click **+**
-   and select the installed app. Reopen only if macOS asks, then press **Cmd–Shift–S**.
+3. Follow the app's **Screen Recording Setup** instructions. Click **Open System Settings**
+   and enable the app. If it is missing, click **+** and use **Show App in Finder** or
+   **Copy App Path** to locate the running app. Reopen only if macOS asks. Return to
+   setup to check access, then choose **Take a Screenshot** or press **Cmd–Shift–S**.
 
 No DMG, dragging, or manual extraction is needed. The download-first form keeps
 Terminal input available for confirmation; the pipe form reads answers from your
@@ -52,9 +53,12 @@ it opens only when you accept. Declining or pressing Control-D keeps the app ins
 If opening fails, installation still succeeds and the installer shows where to open it.
 No Xcode, Python, jq, or administrator password is required.
 
-On first launch, the app opens Preferences so you can review the capture shortcut,
-save folder, and Screen Recording permission. This happens once per user; existing
-users also see Preferences once when first running a version with this behavior.
+On first launch, the app opens Screen Recording Setup. It also opens setup when
+permission is missing on a later launch, even if an earlier installation already
+showed Preferences. Returning users with access go straight to the menu bar. Your
+save folder, annotation defaults, and other preferences are preserved. Reopen
+**Screen Recording Setup…** from the menu at any time; ordinary settings remain
+in **Preferences…**.
 
 **The app is still ad-hoc signed and not notarized.** Curl downloads normally lack
 the browser quarantine marker that triggers the first-launch block. This changes
@@ -242,10 +246,15 @@ first. A fresh browser download may carry quarantine again after an update.
 
 ## Allow Screen Recording
 
-Open System Settings → Privacy & Security → Screen & System Audio Recording
-(the name varies by macOS version). Enable ScreenCaptureAll. If it is missing,
-click + and select /Applications/ScreenCaptureAll.app. Quit and reopen the app if
-macOS requests it; do not launch a second copy.
+In **Screen Recording Setup**, click **Open System Settings** to open Privacy &
+Security → Screen & System Audio Recording (the name varies by macOS version).
+Enable the app named in setup. If it is missing, click **+** and select the app
+shown by **Show App in Finder**. Alternatively, use **Copy App Path**, press
+**Cmd–Shift–G** in the file picker, and paste the path. Setup uses the running
+bundle location, including custom installation paths and diagnostic builds.
+Quit and reopen the app only if macOS requests it; do not launch a second copy.
+Return to setup to refresh access, or click **Check Access Again**. Opening Settings
+alone does not grant access. Once access is allowed, choose **Take a Screenshot**.
 
 Screen Recording is required. Accessibility is not required.
 
