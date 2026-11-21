@@ -31,9 +31,15 @@ final class PreferencesStore: ObservableObject {
         didSet { defaults.set(showsMenuBarIcon, forKey: Keys.showsMenuBarIcon) }
     }
 
-    private let defaults = UserDefaults.standard
+    var hasShownInitialPreferences: Bool {
+        get { defaults.bool(forKey: Keys.hasShownInitialPreferences) }
+        set { defaults.set(newValue, forKey: Keys.hasShownInitialPreferences) }
+    }
 
-    init() {
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         let savedPath = defaults.string(forKey: Keys.saveFolderPath)
         saveFolderURL = savedPath.map(URL.init(fileURLWithPath:)) ?? FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Pictures")
@@ -55,6 +61,7 @@ final class PreferencesStore: ObservableObject {
 }
 
 private enum Keys {
+    static let hasShownInitialPreferences = "hasShownInitialPreferences"
     static let saveFolderPath = "saveFolderPath"
     static let defaultAnnotationColor = "defaultAnnotationColor"
     static let defaultAnnotationStrokeWidth = "defaultAnnotationStrokeWidth"

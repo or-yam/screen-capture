@@ -88,6 +88,9 @@ cp "$BINARY_PATH" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 chmod 755 "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 
 cp "$ROOT/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp "$ROOT/Scripts/install.sh" "$ROOT/Scripts/update_app.sh" "$APP_BUNDLE/Contents/Resources/"
+/bin/bash -n "$APP_BUNDLE/Contents/Resources/install.sh"
+/bin/bash -n "$APP_BUNDLE/Contents/Resources/update_app.sh"
 
 cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -134,6 +137,12 @@ echo "Creating $ZIP_NAME"
   unzip -tq "$ZIP_NAME"
 )
 
+# Ship a standalone installer pinned to these exact release assets. The source
+# script defaults to latest for development; installed releases never drift.
+sed "s/^DEFAULT_VERSION=\"latest\"$/DEFAULT_VERSION=\"$MARKETING_VERSION\"/" \
+  "$ROOT/Scripts/install.sh" > "$STAGING_DIR/install.sh"
+bash -n "$STAGING_DIR/install.sh"
+
 echo "Creating $DMG_NAME"
 # The engine owns mounting, Retina TIFF generation and Finder metadata. All
 # outputs stay in staging until the finished image has passed validation.
@@ -151,14 +160,14 @@ done
 "$DMG_PYTHON" "${CHECK_ARGS[@]}"
 (
   cd "$STAGING_DIR"
-  shasum -a 256 "$DMG_NAME" "$ZIP_NAME" > "$CHECKSUM_NAME"
+  shasum -a 256 "$DMG_NAME" "$ZIP_NAME" install.sh > "$CHECKSUM_NAME"
   shasum -a 256 -c "$CHECKSUM_NAME"
 )
 
 # Replace the whole output set as one transaction. Every move is a rename
 # inside dist/, so a failure halfway through can be rolled back instead of
 # leaving a new app bundle next to a stale DMG.
-OUTPUT_NAMES=("$APP_NAME.app" "$ZIP_NAME" "$DMG_NAME" "$CHECKSUM_NAME")
+OUTPUT_NAMES=("$APP_NAME.app" "$ZIP_NAME" "$DMG_NAME" "$CHECKSUM_NAME" install.sh)
 BACKUP_DIR="$STAGING_DIR/backup"
 mkdir -p "$BACKUP_DIR"
 
@@ -167,7 +176,7 @@ mkdir -p "$BACKUP_DIR"
 # successful run leaves dist/ holding exactly the current set, and a failed
 # run restores exactly what was there before.
 DISPLACED_NAMES=()
-for existing in "$DIST_DIR/$APP_NAME.app" \
+for existing in "$DIST_DIR/$APP_NAME.app" "$DIST_DIR/install.sh" \
                 "$DIST_DIR/$APP_NAME"-*.dmg \
                 "$DIST_DIR/$APP_NAME"-*.zip \
                 "$DIST_DIR/$APP_NAME"-*-SHA256SUMS.txt; do
@@ -253,3 +262,4 @@ echo "Created: $DIST_DIR/$APP_NAME.app"
 echo "Created: $DIST_DIR/$ZIP_NAME"
 echo "Created: $DIST_DIR/$DMG_NAME"
 echo "Created: $DIST_DIR/$CHECKSUM_NAME"
+echo "Created: $DIST_DIR/install.sh"

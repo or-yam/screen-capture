@@ -6,17 +6,20 @@ final class MenuBarController: NSObject {
     private let preferences: PreferencesStore
     private let captureCoordinator: CaptureCoordinator
     private let openPreferencesAction: () -> Void
+    private let checkForUpdatesAction: () -> Void
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var menuBarIconCancellable: AnyCancellable?
 
     init(
         preferences: PreferencesStore,
         captureCoordinator: CaptureCoordinator,
-        openPreferencesAction: @escaping () -> Void
+        openPreferencesAction: @escaping () -> Void,
+        checkForUpdatesAction: @escaping () -> Void
     ) {
         self.preferences = preferences
         self.captureCoordinator = captureCoordinator
         self.openPreferencesAction = openPreferencesAction
+        self.checkForUpdatesAction = checkForUpdatesAction
         super.init()
 
         menuBarIconCancellable = preferences.$showsMenuBarIcon
@@ -58,6 +61,11 @@ final class MenuBarController: NSObject {
             symbolName: "gearshape"
         ))
         menu.addItem(.separator())
+        menu.addItem(makeMenuItem(
+            title: "Check for Updates...",
+            action: #selector(checkForUpdates),
+            symbolName: "arrow.triangle.2.circlepath"
+        ))
         menu.addItem(makeMenuItem(
             title: "Quit Screen Capture All",
             action: #selector(quit),
@@ -116,6 +124,10 @@ final class MenuBarController: NSObject {
 
     @objc private func openPreferences() {
         openPreferencesAction()
+    }
+
+    @objc private func checkForUpdates() {
+        checkForUpdatesAction()
     }
 
     @objc private func quit() {

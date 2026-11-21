@@ -3,8 +3,8 @@ import SwiftUI
 
 @MainActor
 final class PreferencesWindowController: NSWindowController {
-    init(preferences: PreferencesStore) {
-        let hostingController = NSHostingController(rootView: PreferencesView(preferences: preferences))
+    init(preferences: PreferencesStore, updates: AppUpdateController) {
+        let hostingController = NSHostingController(rootView: PreferencesView(preferences: preferences, updates: updates))
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Preferences"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

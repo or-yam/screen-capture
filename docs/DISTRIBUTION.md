@@ -7,7 +7,7 @@ This project started as a personal-use macOS app. Distribution should stay simpl
 - Keep the local developer path easy: clone, build, run.
 - Provide a downloadable GitHub Release asset for personal install and friend testing.
 - Ship a drag-install DMG plus a ZIP, both universal.
-- Avoid Mac App Store, auto-update, telemetry, and third-party installer tooling.
+- Avoid Mac App Store, unattended auto-update, telemetry, and third-party installer tooling.
 - Do not convert to an Xcode project just for packaging unless SwiftPM packaging becomes painful.
 
 ## Roadmap Shift
@@ -20,7 +20,7 @@ The next quality roadmap should evaluate, in order:
 - Launch-at-login, permission onboarding, and settings UX only if they preserve the fast menu-bar utility model.
 - Automated tests and a documented manual QA matrix before broader release.
 
-Do not add telemetry, upload services, App Store distribution, or auto-update by default. Those need explicit product decisions.
+Do not add telemetry, upload services, App Store distribution, or unattended auto-update by default. Those need explicit product decisions. Manual GUI updates are explicitly supported: users check for a release and confirm installation before the app quits, installs, and reopens.
 
 ## Recommended Paths
 
@@ -59,11 +59,37 @@ Public distribution is GitHub Releases only. Each versioned tag publishes:
 ScreenCaptureAll-0.1.0-universal.dmg
 ScreenCaptureAll-0.1.0-universal.zip
 ScreenCaptureAll-0.1.0-universal-SHA256SUMS.txt
+install.sh
 ```
 
-The DMG is the primary download: it carries a custom volume icon and a Finder window with a background image, the app, and an `Applications` symlink for drag-install. The ZIP is the alternative for people who prefer it. Both contain the same universal (arm64 + x86_64) app. Neither includes a copy of `docs/INSTALL.md`; the window points at the drag target instead.
+The Terminal installer is an alternative to the browser's Gatekeeper override. It
+uses curl to fetch a universal ZIP and checks its published checksum, bundle
+identity/version, CPU support, minimum macOS version, and signature integrity.
+The default destination stays `/Applications/ScreenCaptureAll.app`. Replacement
+requires `--replace`; the app must be quit first. Downloads and installation are
+staged, with rollback for failed replacement. No app launch, certificate import,
+quarantine removal, or security-policy change is performed. See
+[installer usage and private-repository authentication](INSTALL.md#install-with-terminal).
+This is a different trust channel, not Apple notarization; clean-machine launch
+and update QA are still needed. The source repository and releases are public,
+so anonymous curl downloads do not need a GitHub account.
 
-The DMG does **not** bypass Gatekeeper. It is ad-hoc signed, so testers still approve it once in Privacy & Security. A DMG is worth shipping because it makes the install target obvious; it is not a substitute for notarization.
+The app also bundles `install.sh` and `update_app.sh` inside its signed Resources.
+The GUI updater checks the public latest-release API on demand and compares
+semantic versions numerically. After the user confirms, private copies of both
+scripts run outside the bundle so replacement cannot remove the active helper.
+The helper waits for normal app exit, invokes the installer with the confirmed
+version and explicit `--replace --yes`, records the result, and reopens the same
+app path. It never stops another app instance; the installer refuses replacement
+while any ScreenCaptureAll instance is running. No background polling or
+unattended installation is performed. See [GUI updates](INSTALL.md#update-from-the-app).
+
+The DMG carries a custom volume icon and a Finder window with a background image,
+the app, and an `Applications` symlink for drag-install. The ZIP and DMG contain
+the same universal (arm64 + x86_64) app. Neither includes `docs/INSTALL.md`.
+
+The DMG does **not** bypass Gatekeeper. Its app is ad-hoc signed, so browser-download
+testers still use the Privacy & Security override. The DMG container is unsigned.
 
 Release automation lives in `.github/workflows/build.yml`: pull requests and `main` builds test and package, and a `v*` tag publishes the release.
 
@@ -86,19 +112,21 @@ The script should:
 - Generate `Contents/Info.plist`.
 - Validate the plist and confirm the binary contains every requested architecture.
 - Copy the executable to `Contents/MacOS/ScreenCaptureAll`.
+- Copy the installer and GUI update helper into `Contents/Resources` before signing.
 - Set executable permissions.
 - Strip extended attributes before signing or zipping.
 - Ad-hoc sign the app for personal use.
 - Zip the app bundle.
+- Include `Scripts/install.sh` with its default pinned to the packaged version.
 - Build a drag-install DMG with generated Finder metadata, the approved artwork and
   volume icon, then validate the compressed read-only image.
-- Write SHA-256 checksums and verify both archives before touching previous outputs.
+- Write SHA-256 checksums for both archives and the installer before touching previous outputs.
 
 `ARCHES="arm64 x86_64"` produces a universal build. Release builds always use it; a bare local run stays single-architecture to keep iteration fast. The version defaults to [VERSION](../VERSION).
 
 ### Failure behavior
 
-The four outputs (app bundle, DMG, ZIP, checksums) are replaced as one transaction, and `dist/` ends up holding exactly that set:
+The five outputs (app bundle, DMG, ZIP, installer, checksums) are replaced as one transaction, and `dist/` ends up holding exactly that set:
 
 ```text
 build + verify in dist/.package.XXXXXX/     # nothing in dist/ is touched yet
