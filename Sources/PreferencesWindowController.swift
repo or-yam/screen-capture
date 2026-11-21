@@ -3,8 +3,18 @@ import SwiftUI
 
 @MainActor
 final class PreferencesWindowController: NSWindowController {
-    init(preferences: PreferencesStore, updates: AppUpdateController) {
-        let hostingController = NSHostingController(rootView: PreferencesView(preferences: preferences, updates: updates))
+    init(
+        preferences: PreferencesStore,
+        updates: AppUpdateController,
+        screenRecordingSetup: ScreenRecordingSetup,
+        startCapture: @escaping () -> Void
+    ) {
+        let hostingController = NSHostingController(rootView: PreferencesView(
+            preferences: preferences,
+            updates: updates,
+            screenRecordingSetup: screenRecordingSetup,
+            startCapture: startCapture
+        ))
         let window = NSWindow(contentViewController: hostingController)
         window.title = "Preferences"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

@@ -7,7 +7,12 @@ struct ScreenCaptureAllApp: App {
 
     var body: some Scene {
         Settings {
-            PreferencesView(preferences: appDelegate.preferences, updates: appDelegate.updates)
+            PreferencesView(
+                preferences: appDelegate.preferences,
+                updates: appDelegate.updates,
+                screenRecordingSetup: appDelegate.screenRecordingSetup,
+                startCapture: appDelegate.startCaptureFromSetup
+            )
         }
     }
 }
@@ -16,11 +21,13 @@ struct ScreenCaptureAllApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let preferences = PreferencesStore()
     let updates = AppUpdateController()
+    let screenRecordingSetup = ScreenRecordingSetup()
 
     private var menuBarController: MenuBarController?
     private var captureCoordinator: CaptureCoordinator?
     private var globalShortcutManager: GlobalShortcutManager?
     private var preferencesWindowController: PreferencesWindowController?
+    private var setupWindowController: ScreenRecordingSetupWindowController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -39,6 +46,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openPreferencesAction: { [weak self] in
                 self?.showPreferences()
             },
+            openPermissionSetupAction: { [weak self] in
+                self?.showPermissionSetup()
+            },
             checkForUpdatesAction: { [weak self] in
                 self?.showPreferences()
                 self?.updates.checkForUpdates()
@@ -53,9 +63,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         globalShortcutManager?.start()
 
-        if !preferences.hasShownInitialPreferences {
-            showPreferences()
-            preferences.hasShownInitialPreferences = true
+        if screenRecordingSetup.prepareForLaunch(preferences: preferences) {
+            showPermissionSetup()
         }
         updates.reportPendingUpdate()
     }
@@ -63,10 +72,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showPreferences() {
         AppLogging.lifecycle.debug("Preferences requested")
         if preferencesWindowController == nil {
-            preferencesWindowController = PreferencesWindowController(preferences: preferences, updates: updates)
+            preferencesWindowController = PreferencesWindowController(
+                preferences: preferences,
+                updates: updates,
+                screenRecordingSetup: screenRecordingSetup,
+                startCapture: { [weak self] in self?.startCaptureFromSetup() }
+            )
         }
 
         preferencesWindowController?.showPreferences()
+    }
+
+    private func showPermissionSetup() {
+        screenRecordingSetup.refresh()
+        if setupWindowController == nil {
+            setupWindowController = ScreenRecordingSetupWindowController(
+                setup: screenRecordingSetup,
+                startCapture: { [weak self] in self?.startCaptureFromSetup() }
+            )
+        }
+        setupWindowController?.showSetup()
+    }
+
+    func startCaptureFromSetup() {
+        screenRecordingSetup.refresh()
+        guard screenRecordingSetup.isAllowed else {
+            showPermissionSetup()
+            return
+        }
+        NSApp.keyWindow?.orderOut(nil)
+        setupWindowController?.window?.orderOut(nil)
+        preferencesWindowController?.window?.orderOut(nil)
+        captureCoordinator?.startRegionCapture()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -74,6 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+        screenRecordingSetup.refresh()
         // If the user reopened the old app during installation, the helper's
         // final open activates that process rather than launching another one.
         updates.reportPendingUpdate()

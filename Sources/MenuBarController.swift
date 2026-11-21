@@ -6,6 +6,7 @@ final class MenuBarController: NSObject {
     private let preferences: PreferencesStore
     private let captureCoordinator: CaptureCoordinator
     private let openPreferencesAction: () -> Void
+    private let openPermissionSetupAction: () -> Void
     private let checkForUpdatesAction: () -> Void
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private var menuBarIconCancellable: AnyCancellable?
@@ -14,11 +15,13 @@ final class MenuBarController: NSObject {
         preferences: PreferencesStore,
         captureCoordinator: CaptureCoordinator,
         openPreferencesAction: @escaping () -> Void,
+        openPermissionSetupAction: @escaping () -> Void,
         checkForUpdatesAction: @escaping () -> Void
     ) {
         self.preferences = preferences
         self.captureCoordinator = captureCoordinator
         self.openPreferencesAction = openPreferencesAction
+        self.openPermissionSetupAction = openPermissionSetupAction
         self.checkForUpdatesAction = checkForUpdatesAction
         super.init()
 
@@ -60,6 +63,14 @@ final class MenuBarController: NSObject {
             keyEquivalent: ",",
             symbolName: "gearshape"
         ))
+        let setupItem = makeMenuItem(
+            title: "Screen Recording Setup…",
+            action: #selector(openPermissionSetup),
+            keyEquivalent: "p",
+            symbolName: "lock.shield"
+        )
+        setupItem.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(setupItem)
         menu.addItem(.separator())
         menu.addItem(makeMenuItem(
             title: "Check for Updates...",
@@ -124,6 +135,10 @@ final class MenuBarController: NSObject {
 
     @objc private func openPreferences() {
         openPreferencesAction()
+    }
+
+    @objc private func openPermissionSetup() {
+        openPermissionSetupAction()
     }
 
     @objc private func checkForUpdates() {

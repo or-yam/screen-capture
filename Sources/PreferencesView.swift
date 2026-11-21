@@ -1,12 +1,11 @@
 import AppKit
-import Combine
-import CoreGraphics
 import SwiftUI
 
 struct PreferencesView: View {
     @ObservedObject var preferences: PreferencesStore
     var updates: AppUpdateController
-    @StateObject private var screenRecordingStatus = ScreenRecordingPermissionStatus()
+    let screenRecordingSetup: ScreenRecordingSetup
+    let startCapture: () -> Void
 
     private static let annotationSwatches: [AnnotationSwatch] = [
         AnnotationSwatch(name: "Red", color: .systemRed),
@@ -22,30 +21,7 @@ struct PreferencesView: View {
     var body: some View {
         Form {
             Section("Screen Recording") {
-                LabeledContent("Permission") {
-                    HStack(spacing: 8) {
-                        Label(
-                            screenRecordingStatus.isAllowed ? "Allowed" : "Not allowed",
-                            systemImage: screenRecordingStatus.isAllowed ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-                        )
-                        .foregroundStyle(screenRecordingStatusStyle)
-
-                        Button("Open System Settings", action: openScreenRecordingSettings)
-                    }
-                }
-
-                if !screenRecordingStatus.isAllowed {
-                    Text("Allow Screen Recording to take screenshots. In System Settings, enable this app under Screen & System Audio Recording.")
-                        .font(.callout)
-                    Text("If the app is missing, click + and select this app in Finder:")
-                        .font(.callout)
-                    Text(Bundle.main.bundleURL.path)
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    Text("Reopen the app only if macOS asks you to. Then press Command–Shift–S to take a screenshot.")
-                        .font(.callout)
-                }
+                ScreenRecordingSetupView(setup: screenRecordingSetup, startCapture: startCapture)
             }
 
             Section("App") {
@@ -139,18 +115,10 @@ struct PreferencesView: View {
         .controlSize(.small)
         .padding(.vertical, 20)
         .frame(minWidth: 560, idealWidth: 620, minHeight: 460, idealHeight: 520)
-        .onAppear(perform: refreshScreenRecordingStatus)
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            refreshScreenRecordingStatus()
-        }
     }
 
     private var saveFolderValidation: SaveFolderValidation {
         SaveFolderValidation(url: preferences.saveFolderURL)
-    }
-
-    private var screenRecordingStatusStyle: AnyShapeStyle {
-        screenRecordingStatus.isAllowed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange)
     }
 
     private var folderStatusRow: some View {
@@ -209,23 +177,6 @@ struct PreferencesView: View {
         guard saveFolderValidation.isRevealable else { return }
         NSWorkspace.shared.activateFileViewerSelecting([preferences.saveFolderURL])
     }
-
-    private func refreshScreenRecordingStatus() {
-        screenRecordingStatus.isAllowed = CGPreflightScreenCaptureAccess()
-    }
-
-    private func openScreenRecordingSettings() {
-        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") else {
-            return
-        }
-
-        NSWorkspace.shared.open(url)
-    }
-}
-
-@MainActor
-private final class ScreenRecordingPermissionStatus: ObservableObject {
-    @Published var isAllowed = false
 }
 
 private struct AnnotationSwatch: Identifiable {
