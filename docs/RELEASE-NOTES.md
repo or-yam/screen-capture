@@ -1,7 +1,9 @@
 ## This release
 
-v1.0.5 is the version-only update target for testing the GUI updater end to end
-from v1.0.4. Application behavior matches v1.0.4.
+v1.0.6 adds guided Screen Recording setup on first launch and whenever access
+is missing at launch. Setup can open System Settings, reveal or copy the running
+app's path, and check access before taking a first screenshot. Existing preferences
+are preserved.
 
 ## Install / update
 
@@ -10,7 +12,7 @@ from v1.0.4. Application behavior matches v1.0.4.
 - **Terminal installation:** this release also includes a version-pinned `install.sh`.
   It downloads and verifies the ZIP using curl, asks before installing unnotarized
   software, and supports explicit updates with `--replace`. It does not change
-  security settings or launch the app. Private repository downloads need GitHub
+  security settings. Interactive installs offer to open the app. Private repository downloads need GitHub
   authentication; see the installation guide linked below.
 - **No Apple notarization:** browser-downloaded builds normally trigger
   **Apple could not verify "ScreenCaptureAll" is free of malware**. This warning is
@@ -20,8 +22,8 @@ from v1.0.4. Application behavior matches v1.0.4.
   Gatekeeper globally.
 - Enable **Screen & System Audio Recording** for ScreenCaptureAll. Accessibility
   is not required. Find the app in the menu bar; capture shortcut: **Cmd-Shift-S**.
-- **First launch:** Preferences opens automatically to help you find the capture
-  shortcut, save folder, and Screen Recording settings. It is shown once per user.
+- **First launch:** Screen Recording Setup opens automatically. You can reopen
+  it from the menu bar or find the same guidance in Preferences.
 - **GUI updates:** choose **Check for Updates…** from the menu or Preferences,
   then **Install and Restart**. The app quits, verifies and installs the selected
   release, then reopens. Checks and installation are user initiated. The Terminal
