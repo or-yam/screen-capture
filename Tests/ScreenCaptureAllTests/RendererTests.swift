@@ -88,6 +88,16 @@ struct RendererTests {
         let exportContent = try #require(exported.cropping(to: CGRect(x: 12, y: 12, width: 216, height: 156)))
         try expectMatchingAnnotationFootprint(previewContent, exportContent)
         #expect(try pixels(exported) != pixels(source))
+
+        if tool == .circle {
+            // The drag from (40, 40) to (90, 70) produces a 30-pixel diameter.
+            let top = try #require(exported.cropping(to: CGRect(x: 53, y: 38, width: 4, height: 4)))
+            let corner = try #require(exported.cropping(to: CGRect(x: 39, y: 39, width: 3, height: 3)))
+            let center = try #require(exported.cropping(to: CGRect(x: 53, y: 53, width: 4, height: 4)))
+            #expect(try redInkMask(pixels(top)).contains(true))
+            #expect(try !redInkMask(pixels(corner)).contains(true))
+            #expect(try !redInkMask(pixels(center)).contains(true))
+        }
     }
 
     @Test
@@ -142,7 +152,7 @@ struct RendererTests {
 
         Renderer().drawAnnotations(
             [OverlayAnnotation(
-                kind: tool, rectInCanvas: tool == .rectangle ? CGRect(x: 2, y: 2, width: 20, height: 20) : nil,
+                kind: tool, rectInCanvas: [.rectangle, .circle].contains(tool) ? CGRect(x: 2, y: 2, width: 20, height: 20) : nil,
                 pointsInCanvas: [.zero, CGPoint(x: 20, y: 20)], text: "Aa", textPositionInCanvas: CGPoint(x: 2, y: 2)
             )],
             canvas: AnnotationCanvas(frameInAppKitScreenSpace: CGRect(x: 0, y: 0, width: 40, height: 40)),
@@ -248,7 +258,8 @@ struct RendererTests {
         let state = try selection(image: whiteImage(width: width, height: height), frame: CGRect(x: 0, y: 0, width: 300, height: 260))
         try state.setCapturedImageFromFrozenSnapshots(for: CGRect(x: 40, y: 40, width: 180, height: 160))
         let originalImage = try #require(state.capturedImage)
-        try addScreenAnnotation(tool, to: state, start: CGPoint(x: 180, y: 150), end: CGPoint(x: 260, y: 120))
+        let end = CGPoint(x: 260, y: 90)
+        try addScreenAnnotation(tool, to: state, start: CGPoint(x: 180, y: 150), end: end)
         let committed = try #require(state.annotations.last)
         state.undoLastAnnotation()
         let canvas = try #require(state.annotationCanvas)
@@ -256,7 +267,7 @@ struct RendererTests {
         if tool == .text {
             state.updateDraftText("Wide annotation beyond capture and display\nSecond line")
         } else {
-            state.updateAnnotation(to: canvas.point(fromScreen: CGPoint(x: 260, y: 120)))
+            state.updateAnnotation(to: canvas.point(fromScreen: end))
         }
         let draftPreview = try drawOverlay(state, pointSize: CGSize(width: 600, height: 260), pixelWidth: 600, pixelHeight: 260)
         let overflow = CGRect(x: 226, y: 60, width: 74, height: 140)
@@ -280,7 +291,7 @@ struct RendererTests {
         try addScreenAnnotation(tool, to: state)
         let original = try export(state)
         let canvas = try #require(state.annotationCanvas)
-        let grab = canvas.point(fromScreen: CGPoint(x: 100, y: tool == .text ? 144 : 150))
+        let grab = canvas.point(fromScreen: CGPoint(x: tool == .circle ? 115 : 100, y: tool == .text ? 144 : 150))
         state.beginAnnotationMove(at: grab)
         try #require(state.annotationMoveIsActive)
         state.updateAnnotationMove(to: CGPoint(x: grab.x + 20, y: grab.y + 10))

@@ -65,11 +65,19 @@ struct AnnotationDensityTests {
 
             // Construct the legacy pixel-valued mark independently; in particular,
             // never derive this reference by rescaling the stored canvas annotation.
+            let pixelBounds: CGRect?
+            switch tool {
+            case .rectangle:
+                pixelBounds = CGRect(x: 41, y: 39, width: 126, height: 74)
+            case .circle:
+                let diameter = min(126 / density.x, 74 / density.y)
+                pixelBounds = CGRect(x: 41, y: 39, width: diameter * density.x, height: diameter * density.y)
+            default:
+                pixelBounds = nil
+            }
             let referenceAnnotation = OverlayAnnotation(
                 kind: tool,
-                rectInCanvas: tool == .rectangle ? CGRect(
-                    x: 41, y: 39, width: 126, height: 74
-                ) : nil,
+                rectInCanvas: pixelBounds,
                 pointsInCanvas: tool == .arrow ? [pixelPoints[0], pixelPoints[3]] : pixelPoints,
                 text: tool == .text ? "Wim 42" : "",
                 textPositionInCanvas: tool == .text ? pixelPoints[0] : nil,

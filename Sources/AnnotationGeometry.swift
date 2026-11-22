@@ -31,9 +31,8 @@ enum AnnotationGeometry {
     ///
     /// `tolerance` is a screen-point radius applied uniformly in canvas space so
     /// thin strokes and arrowheads stay usable regardless of display density or
-    /// an anisotropic creation basis. A rectangle's empty interior is not ink,
-    /// so it does not hit. Text is hit anywhere inside its laid-out block,
-    /// including blank lines.
+    /// an anisotropic creation basis. Empty interiors of outlined shapes do not hit.
+    /// Text is hit anywhere inside its laid-out block, including blank lines.
     static func hitTest(
         _ annotation: OverlayAnnotation,
         at point: CGPoint,
@@ -209,7 +208,7 @@ enum AnnotationGeometry {
             guard points.count >= 2 else { return [(first, first)] }
             return zip(points, points.dropFirst()).map { pair in (pair.0, pair.1) }
 
-        case .text:
+        case .circle, .text:
             return []
         }
     }
@@ -217,13 +216,18 @@ enum AnnotationGeometry {
     private static func paintedStrokePath(of annotation: OverlayAnnotation) -> CGPath? {
         let scale = verticalScale(for: annotation)
         guard scale > 0, annotation.lineWidth > 0 else { return nil }
-        let segments = segments(of: annotation)
-        guard !segments.isEmpty else { return nil }
         let path = CGMutablePath()
-        for (start, end) in segments {
-            path.move(to: CGPoint(x: start.x, y: start.y / scale))
-            path.addLine(to: CGPoint(x: end.x, y: end.y / scale))
+        if annotation.kind == .circle {
+            guard let rect = annotation.rectInCanvas, !rect.isEmpty else { return nil }
+            path.addEllipse(in: CGRect(x: rect.minX, y: rect.minY / scale,
+                                       width: rect.width, height: rect.height / scale))
+        } else {
+            for (start, end) in segments(of: annotation) {
+                path.move(to: CGPoint(x: start.x, y: start.y / scale))
+                path.addLine(to: CGPoint(x: end.x, y: end.y / scale))
+            }
         }
+        guard !path.isEmpty else { return nil }
         let stroke = path.copy(strokingWithWidth: annotation.lineWidth, lineCap: .round,
                                lineJoin: .round, miterLimit: 10)
         var transform = CGAffineTransform(scaleX: 1, y: scale)
