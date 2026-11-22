@@ -582,9 +582,9 @@ final class RegionSelectionState {
                 displayID: displayID,
                 displayFrameInAppKitScreenSpace: displayFrame
             )
-        case .rectangle:
+        case .rectangle, .circle:
             draftAnnotation = OverlayAnnotation(
-                kind: .rectangle,
+                kind: tool,
                 rectInCanvas: CGRect(origin: point, size: .zero),
                 color: color,
                 lineWidth: canvasLineWidth,
@@ -635,6 +635,15 @@ final class RegionSelectionState {
             draftAnnotation.pointsInCanvas = [annotationDragAnchorInCanvas, point]
         case .rectangle:
             draftAnnotation.rectInCanvas = Self.normalizedRect(from: annotationDragAnchorInCanvas, to: point)
+        case .circle:
+            let dx = point.x - annotationDragAnchorInCanvas.x
+            let dy = point.y - annotationDragAnchorInCanvas.y
+            let diameter = min(abs(dx), abs(dy))
+            let corner = CGPoint(
+                x: annotationDragAnchorInCanvas.x + (dx < 0 ? -diameter : diameter),
+                y: annotationDragAnchorInCanvas.y + (dy < 0 ? -diameter : diameter)
+            )
+            draftAnnotation.rectInCanvas = Self.normalizedRect(from: annotationDragAnchorInCanvas, to: corner)
         case .draw, .highlight:
             if draftAnnotation.pointsInCanvas.last.map({ annotationPixelDistance(from: $0, to: point) >= 1 }) ?? true {
                 draftAnnotation.pointsInCanvas.append(point)
@@ -1080,6 +1089,7 @@ final class RegionSelectionState {
 enum OverlayAnnotationTool: CaseIterable {
     case arrow
     case rectangle
+    case circle
     case draw
     case highlight
     case text
@@ -1211,6 +1221,7 @@ final class RegionCaptureOverlayView: NSView {
     private let arrowButton = SolidActionButton(symbolName: "arrow.up.right", accessibilityDescription: "Arrow")
     private let textButton = SolidActionButton(symbolName: "textformat", accessibilityDescription: "Text")
     private let rectangleButton = SolidActionButton(symbolName: "rectangle", accessibilityDescription: "Rectangle")
+    private let circleButton = SolidActionButton(symbolName: "circle", accessibilityDescription: "Circle")
     private let drawButton = SolidActionButton(symbolName: "pencil.tip", accessibilityDescription: "Draw")
     private let highlightButton = SolidActionButton(symbolName: "highlighter", accessibilityDescription: "Highlight")
     private let colorButton = SolidActionButton(symbolName: nil, accessibilityDescription: "Color")
@@ -1365,6 +1376,9 @@ final class RegionCaptureOverlayView: NSView {
         }
         if !rectangleButton.isHidden {
             addCursorRect(rectangleButton.frame, cursor: .arrow)
+        }
+        if !circleButton.isHidden {
+            addCursorRect(circleButton.frame, cursor: .arrow)
         }
         if !drawButton.isHidden {
             addCursorRect(drawButton.frame, cursor: .arrow)
@@ -1649,6 +1663,11 @@ final class RegionCaptureOverlayView: NSView {
         rectangleButton.isHidden = true
         addSubview(rectangleButton)
 
+        circleButton.target = self
+        circleButton.action = #selector(circleButtonPressed)
+        circleButton.isHidden = true
+        addSubview(circleButton)
+
         drawButton.target = self
         drawButton.action = #selector(drawButtonPressed)
         drawButton.isHidden = true
@@ -1720,9 +1739,10 @@ final class RegionCaptureOverlayView: NSView {
         arrowButton.isActive = activeAnnotationTool == .arrow
         textButton.isActive = activeAnnotationTool == .text
         rectangleButton.isActive = activeAnnotationTool == .rectangle
+        circleButton.isActive = activeAnnotationTool == .circle
         colorButton.swatchColor = selectedColor
 
-        let annotationButtons = [moveButton, selectAnnotationsButton, drawButton, highlightButton, arrowButton, textButton, rectangleButton, colorButton, strokeButton, undoButton]
+        let annotationButtons = [moveButton, selectAnnotationsButton, drawButton, highlightButton, arrowButton, textButton, rectangleButton, circleButton, colorButton, strokeButton, undoButton]
         let actionButtons = [copyButton, saveButton, closeButton]
         let toolbarSize = floatingBarSize(buttonCount: annotationButtons.count, axis: .vertical)
         let actionBarSize = floatingBarSize(buttonCount: actionButtons.count, axis: .horizontal)
@@ -1759,7 +1779,7 @@ final class RegionCaptureOverlayView: NSView {
         annotationToolbarBackground.isHidden = true
         actionBarBackground.isHidden = true
         hideShortcutHelp()
-        [moveButton, selectAnnotationsButton, arrowButton, textButton, rectangleButton, drawButton, highlightButton, colorButton, strokeButton, undoButton, copyButton, saveButton, closeButton].forEach {
+        [moveButton, selectAnnotationsButton, arrowButton, textButton, rectangleButton, circleButton, drawButton, highlightButton, colorButton, strokeButton, undoButton, copyButton, saveButton, closeButton].forEach {
             $0.isHidden = true
         }
     }
@@ -1983,6 +2003,11 @@ final class RegionCaptureOverlayView: NSView {
     @objc private func rectangleButtonPressed() {
         commitActiveTextField()
         toggleAnnotationTool(.rectangle)
+    }
+
+    @objc private func circleButtonPressed() {
+        commitActiveTextField()
+        toggleAnnotationTool(.circle)
     }
 
     @objc private func drawButtonPressed() {

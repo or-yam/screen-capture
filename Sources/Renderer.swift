@@ -119,7 +119,13 @@ final class Renderer {
         }
 
         if let rect = annotation.rectInCanvas {
-            context.stroke(flip(rect, canvasHeight: canvasHeight, verticalScale: verticalScale))
+            let strokeRect = flip(rect, canvasHeight: canvasHeight, verticalScale: verticalScale)
+            if annotation.kind == .circle {
+                guard !strokeRect.isEmpty else { return }
+                context.strokeEllipse(in: strokeRect)
+            } else {
+                context.stroke(strokeRect)
+            }
             return
         }
 
