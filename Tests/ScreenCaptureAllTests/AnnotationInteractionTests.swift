@@ -302,8 +302,10 @@ struct AnnotationInteractionTests {
         view.refreshState()
         try button(Self.toolButtonLabel(tool), in: view).performClick(nil)
 
+        view.refreshState()
+
         let startCanvas = CGPoint(x: captureCanvas.midX, y: captureCanvas.midY)
-        let outsideCanvas = CGPoint(x: captureCanvas.maxX + 40, y: captureCanvas.midY - 20)
+        let outsideCanvas = CGPoint(x: captureCanvas.maxX + 40, y: captureCanvas.midY - 160)
         let startScreen = canvas.screenPoint(fromCanvas: startCanvas)
         let endScreen = canvas.screenPoint(fromCanvas: outsideCanvas)
 
@@ -319,8 +321,16 @@ struct AnnotationInteractionTests {
         switch tool {
         case .arrow, .draw, .highlight:
             #expect(draft.pointsInCanvas.last == outsideCanvas)
-        case .rectangle:
+        case .rectangle, .circle:
             #expect(draft.rectInCanvas?.maxX == outsideCanvas.x)
+            if tool == .circle {
+                #expect(draft.rectInCanvas?.width == draft.rectInCanvas?.height)
+                let rectangle = try button("Rectangle", in: view)
+                let circle = try button("Circle", in: view)
+                #expect(circle.frame.minX == rectangle.frame.minX)
+                #expect(circle.frame.maxY < rectangle.frame.minY)
+                #expect(circle.isActive)
+            }
         case .text:
             break
         }
@@ -353,6 +363,7 @@ struct AnnotationInteractionTests {
         let expectedStartCanvas: CGPoint
         let expectedEndCanvas: CGPoint
         let expectedRectangle: CGRect
+        let expectedCircle: CGRect
         switch edge {
         case .right:
             startScreen = CGPoint(x: 200, y: 260)
@@ -361,6 +372,7 @@ struct AnnotationInteractionTests {
             expectedStartCanvas = CGPoint(x: 200, y: 240)
             expectedEndCanvas = CGPoint(x: displayCanvas.maxX, y: 280)
             expectedRectangle = CGRect(x: 200, y: 240, width: 400, height: 40)
+            expectedCircle = CGRect(x: 200, y: 240, width: 40, height: 40)
         case .left:
             startScreen = CGPoint(x: 340, y: 260)
             dragScreen = CGPoint(x: 100, y: 250)
@@ -368,6 +380,7 @@ struct AnnotationInteractionTests {
             expectedStartCanvas = CGPoint(x: 340, y: 240)
             expectedEndCanvas = CGPoint(x: displayCanvas.minX, y: 280)
             expectedRectangle = CGRect(x: 0, y: 240, width: 340, height: 40)
+            expectedCircle = CGRect(x: 300, y: 240, width: 40, height: 40)
         case .top:
             startScreen = CGPoint(x: 270, y: 200)
             dragScreen = CGPoint(x: 280, y: 400)
@@ -375,6 +388,7 @@ struct AnnotationInteractionTests {
             expectedStartCanvas = CGPoint(x: 270, y: 300)
             expectedEndCanvas = CGPoint(x: 300, y: displayCanvas.minY)
             expectedRectangle = CGRect(x: 270, y: 0, width: 30, height: 300)
+            expectedCircle = CGRect(x: 270, y: 270, width: 30, height: 30)
         case .bottom:
             startScreen = CGPoint(x: 270, y: 240)
             dragScreen = CGPoint(x: 280, y: 60)
@@ -382,6 +396,7 @@ struct AnnotationInteractionTests {
             expectedStartCanvas = CGPoint(x: 270, y: 260)
             expectedEndCanvas = CGPoint(x: 300, y: displayCanvas.maxY)
             expectedRectangle = CGRect(x: 270, y: 260, width: 30, height: 240)
+            expectedCircle = CGRect(x: 270, y: 260, width: 30, height: 30)
         }
         // The mouseup event is deliberately not the last drag event, so the
         // committed geometry must come from the release point, not the drag.
@@ -397,6 +412,8 @@ struct AnnotationInteractionTests {
         switch tool {
         case .rectangle:
             #expect(committed.rectInCanvas == expectedRectangle)
+        case .circle:
+            #expect(committed.rectInCanvas == expectedCircle)
         case .arrow, .draw, .highlight:
             #expect(committed.pointsInCanvas.first == expectedStartCanvas)
             #expect(committed.pointsInCanvas.last == expectedEndCanvas)
@@ -432,6 +449,8 @@ struct AnnotationInteractionTests {
             #expect(state.draftAnnotation?.pointsInCanvas == [startCanvas, leaveCanvas])
         case .rectangle:
             #expect(state.draftAnnotation?.rectInCanvas?.maxX == leaveCanvas.x)
+        case .circle:
+            #expect(state.draftAnnotation?.rectInCanvas == CGRect(x: 270, y: 270, width: 30, height: 30))
         case .draw, .highlight:
             #expect(state.draftAnnotation?.pointsInCanvas.last == leaveCanvas)
         case .text:
@@ -449,6 +468,8 @@ struct AnnotationInteractionTests {
         switch tool {
         case .rectangle:
             #expect(committed.rectInCanvas == CGRect(x: 270, y: 220, width: 30, height: 50))
+        case .circle:
+            #expect(committed.rectInCanvas == CGRect(x: 270, y: 240, width: 30, height: 30))
         case .arrow:
             #expect(committed.pointsInCanvas == [startCanvas, returnCanvas])
         case .draw, .highlight:
@@ -597,9 +618,9 @@ struct AnnotationInteractionTests {
 
     // MARK: - Helpers
 
-    /// The four non-text drawing tools, driven through their real toolbar
+    /// The non-text drawing tools, driven through their real toolbar
     /// buttons. Text overflow is covered by the renderer and editor tests.
-    nonisolated static let drawingTools: [OverlayAnnotationTool] = [.arrow, .rectangle, .draw, .highlight]
+    nonisolated static let drawingTools: [OverlayAnnotationTool] = [.arrow, .rectangle, .circle, .draw, .highlight]
 
     /// The four display edges a live gesture can be clamped against.
     enum DisplayEdge: CaseIterable {
@@ -613,6 +634,7 @@ struct AnnotationInteractionTests {
         switch tool {
         case .arrow: return "Arrow"
         case .rectangle: return "Rectangle"
+        case .circle: return "Circle"
         case .draw: return "Draw"
         case .highlight: return "Highlight"
         case .text: return "Text"
@@ -695,7 +717,7 @@ struct AnnotationInteractionTests {
         let canvas = try #require(state.annotationCanvas)
         let point: CGPoint
         switch mark.kind {
-        case .rectangle:
+        case .rectangle, .circle:
             let rect = try #require(mark.rectInCanvas)
             point = CGPoint(x: rect.midX, y: rect.minY)
         case .text:

@@ -418,6 +418,8 @@ struct AnnotationSelectionMoveStateTests {
             return CGPoint(x: 200, y: 125)
         case .rectangle:
             return CGPoint(x: 250, y: 125)
+        case .circle:
+            return CGPoint(x: 200, y: 125)
         case .text:
             return textHitPoint
         }

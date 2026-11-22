@@ -195,7 +195,7 @@ struct RegionSelectionStateTests {
                 #expect(abs(mark.minimumArrowheadLength - 10 / scaleX) < 0.000001)
             }
         }
-        #expect(state.annotations.prefix(5).map(\.id) == oldMarks.map(\.id))
+        #expect(state.annotations.prefix(oldMarks.count).map(\.id) == oldMarks.map(\.id))
     }
 
     @Test
@@ -225,7 +225,7 @@ struct RegionSelectionStateTests {
             #expect(state.draftAnnotation?.pointsInCanvas == [start, next])
             state.commitAnnotation()
         }
-        for tool in [OverlayAnnotationTool.arrow, .rectangle] {
+        for tool in [OverlayAnnotationTool.arrow, .rectangle, .circle] {
             let before = state.annotations.count
             state.beginAnnotation(tool: tool, at: start, color: .red, lineWidth: 4)
             state.updateAnnotation(to: CGPoint(x: start.x + 0.5 / density, y: start.y + 0.5 / density))
@@ -363,6 +363,8 @@ struct RegionSelectionStateTests {
         switch tool {
         case .rectangle:
             #expect(mark.rectInCanvas == CGRect(x: 170, y: 200, width: 50, height: 30))
+        case .circle:
+            #expect(mark.rectInCanvas == CGRect(x: 170, y: 200, width: 30, height: 30))
         case .text:
             #expect(mark.textPositionInCanvas == CGPoint(x: 170, y: 200))
             #expect(mark.text == "Aa")

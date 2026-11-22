@@ -94,6 +94,20 @@ struct AnnotationGeometryTests {
         #expect(!AnnotationGeometry.hitTest(annotation, at: CGPoint(x: 60, y: -20)), "far outside")
     }
 
+    @Test
+    func circleHitTestingFollowsTheRingAndAccountsForStrokeDensity() {
+        let circle = OverlayAnnotation(
+            kind: .circle,
+            rectInCanvas: CGRect(x: 10, y: 20, width: 40, height: 40),
+            lineWidth: 4,
+            creationPixelSizeInCanvas: CGSize(width: 0.5, height: 1)
+        )
+        #expect(AnnotationGeometry.paintedBounds(of: circle) == CGRect(x: 8, y: 16, width: 44, height: 48))
+        #expect(AnnotationGeometry.hitTest(circle, at: CGPoint(x: 30, y: 17), tolerance: 0))
+        #expect(!AnnotationGeometry.hitTest(circle, at: CGPoint(x: 30, y: 40)))
+        #expect(!AnnotationGeometry.hitTest(circle, at: CGPoint(x: 10, y: 20)))
+    }
+
     @Test(arguments: [
         CGSize(width: 1, height: 1),
         CGSize(width: 0.5, height: 0.5),
