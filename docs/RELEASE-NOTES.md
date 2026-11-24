@@ -1,9 +1,7 @@
 ## This release
 
-v1.0.6 adds guided Screen Recording setup on first launch and whenever access
-is missing at launch. Setup can open System Settings, reveal or copy the running
-app's path, and check access before taking a first screenshot. Existing preferences
-are preserved.
+v1.0.7 adds a Circle annotation tool directly below Rectangle. Drag diagonally
+to draw an outline with the selected color and stroke width.
 
 ## Install / update
 
